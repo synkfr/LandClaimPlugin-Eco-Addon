@@ -128,6 +128,22 @@ public class AuctionManager {
                 return false;
             }
         }
+        // Validate buyout: must be at least N × starting price so the
+        // buyout represents a meaningful premium. Otherwise sellers could
+        // accidentally set a buyout that's basically the starting price.
+        if (buyoutPrice > 0) {
+            double minBuyout = startingPrice * plugin.getEconomyConfig().auctionMinBuyoutMultiplier;
+            if (buyoutPrice < minBuyout) {
+                seller.sendMessage(plugin.getMessages().prefix
+                        + "<red>Buyout price must be at least <gold>"
+                        + EconomyHook.format(minBuyout)
+                        + "</gold> (<gold>"
+                        + plugin.getEconomyConfig().auctionMinBuyoutMultiplier
+                        + "x</gold> the starting price of <gold>"
+                        + EconomyHook.format(startingPrice) + "</gold>).");
+                return false;
+            }
+        }
 
         double fee = plugin.getEconomyConfig().auctionListingFee;
         if (fee > 0) {
@@ -234,15 +250,34 @@ public class AuctionManager {
                                 .replace("<amount>", EconomyHook.format(amount)));
             }
         }
-        // Update the auction row.
+        // Update the auction row. Also applies sniping protection: if the bid
+        // lands in the last N seconds of the auction, extend ends_at by
+        // the same N so other bidders have time to counter.
+        long snipeWindowMs = plugin.getEconomyConfig().auctionSnipeWindowSeconds * 1000L;
+        long currentEndsAt = auction.endsAt;
+        long now = System.currentTimeMillis();
+        long newEndsAt = currentEndsAt;
+        if (snipeWindowMs > 0 && currentEndsAt - now <= snipeWindowMs) {
+            newEndsAt = currentEndsAt + snipeWindowMs;
+            // Notify the seller that the auction was extended.
+            Player seller = Bukkit.getPlayer(auction.sellerId);
+            if (seller != null) {
+                seller.sendMessage(plugin.getMessages().prefix
+                        + "<yellow>Auction for <gold>" + auction.claimName
+                        + "</gold> extended by <gold>"
+                        + plugin.getEconomyConfig().auctionSnipeWindowSeconds
+                        + "</gold>s due to a last-minute bid.");
+            }
+        }
         String p = plugin.getDatabase().tablePrefix();
         try (Connection conn = plugin.getDatabase().getConnection();
              PreparedStatement ps = conn.prepareStatement(
-                     "UPDATE " + p + "auctions SET current_bid = ?, current_bidder = ? "
+                     "UPDATE " + p + "auctions SET current_bid = ?, current_bidder = ?, ends_at = ? "
                              + "WHERE auction_id = ? AND status = 'ACTIVE'")) {
             ps.setDouble(1, amount);
             ps.setString(2, bidder.getUniqueId().toString());
-            ps.setInt(3, auction.auctionId);
+            ps.setLong(3, newEndsAt);
+            ps.setInt(4, auction.auctionId);
             int rows = ps.executeUpdate();
             if (rows == 0) {
                 // Race: someone else settled it first. Refund and bail.
@@ -342,11 +377,32 @@ public class AuctionManager {
 
         // Transfer the claim via the public API. The winner passes themselves
         // as the actor — they're allowed to transfer the claim to
-        // themselves without needing admin permission.
+        // themselves without needing admin permission. If the transfer
+        // fails (race, deleted claim, etc.), refund both sides.
         LandClaimAPI api = LandClaimAPI.getInstance();
+        boolean transferred = false;
         if (api != null) {
             org.bukkit.entity.Player winnerOnline = Bukkit.getPlayer(winnerId);
-            api.transferClaim(winnerOnline, auction.claimId, winnerId);
+            transferred = api.transferClaim(winnerOnline, auction.claimId, winnerId);
+        }
+
+        if (!transferred) {
+            // Refund winner (who already had winningBid withdrawn by the
+            // bid path) and claw back the seller's payout.
+            EconomyHook.deposit(Bukkit.getOfflinePlayer(winnerId), winningBid);
+            if (payout > 0) {
+                EconomyHook.withdraw(Bukkit.getOfflinePlayer(auction.sellerId), payout);
+            }
+            plugin.getLogger().warning("Auction settlement failed for auction " + auction.auctionId
+                    + " — refunded winner " + winnerId + " (" + winningBid + ") and seller "
+                    + auction.sellerId + " (" + payout + "). Manual admin intervention required.");
+            Player winnerPlayer = Bukkit.getPlayer(winnerId);
+            if (winnerPlayer != null) {
+                winnerPlayer.sendMessage(plugin.getMessages().prefix
+                        + plugin.getMessages().marketRefund
+                                .replace("<amount>", EconomyHook.format(winningBid)));
+            }
+            return;
         }
 
         // Notify both sides.

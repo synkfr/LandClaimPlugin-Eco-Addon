@@ -115,6 +115,18 @@ public class EconomyConfig extends OkaeriConfig {
     @Comment("Maximum simultaneous auctions a single player can have active. 0 = unlimited.")
     public int auctionMaxPerPlayer = 3;
 
+    @Comment({
+        "Sniping protection: if a bid lands in the last N seconds of an auction,",
+        "the auction timer is extended by the same N seconds. This prevents",
+        "the 'snipe at the last second' exploit where a buyer waits until the",
+        "very end and steals the claim before anyone can counter-bid.",
+        "Set to 0 to disable sniping protection."
+    })
+    public long auctionSnipeWindowSeconds = 60;
+
+    @Comment("Minimum buyout price as a multiplier of the starting price. e.g. 2.0 means buyout must be at least 2x the starting price.")
+    public double auctionMinBuyoutMultiplier = 2.0;
+
     // ========== FeatureConfig inner class ==========
 
     public static class FeatureConfig extends OkaeriConfig {
