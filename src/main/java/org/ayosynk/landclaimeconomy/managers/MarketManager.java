@@ -205,15 +205,30 @@ public class MarketManager {
         // The buyer passes themselves as the actor — they're allowed to
         // transfer a claim to themselves without needing admin.
         LandClaimAPI api = LandClaimAPI.getInstance();
+        boolean transferred = false;
         if (api != null) {
-            boolean transferred = api.transferClaim(buyer, profile.getProfileId(), buyer.getUniqueId());
-            if (!transferred) {
-                plugin.getLogger().warning("Claim transfer failed for profileId " + profile.getProfileId()
-                        + " — buyer paid but the claim was not reassigned. Manual admin intervention required.");
-            }
+            transferred = api.transferClaim(buyer, profile.getProfileId(), buyer.getUniqueId());
         }
 
         deleteListing(profile.getProfileId());
+
+        if (!transferred) {
+            // Refund the buyer — money was already withdrawn and the
+            // seller was already paid out. Roll back both sides.
+            EconomyHook.deposit(buyer, listing.price);
+            if (sellerPayout > 0) {
+                EconomyHook.withdraw(seller, sellerPayout);
+            }
+            plugin.getDatabase().logTransaction(buyer.getUniqueId().toString(),
+                    profile.getProfileId().toString(), "MARKET_REFUND", listing.price, profile.getName());
+            plugin.getLogger().warning("Claim transfer failed for profileId " + profile.getProfileId()
+                    + " — refunded buyer " + buyer.getUniqueId() + " (" + listing.price + ") and seller "
+                    + seller.getUniqueId() + " (" + sellerPayout + "). Manual admin intervention required.");
+            buyer.sendMessage(plugin.getMessages().prefix
+                    + plugin.getMessages().marketRefund
+                            .replace("<amount>", EconomyHook.format(listing.price)));
+            return false;
+        }
 
         buyer.sendMessage(plugin.getMessages().prefix
                 + plugin.getMessages().marketBought

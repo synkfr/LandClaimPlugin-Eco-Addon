@@ -38,6 +38,7 @@ public class MessagesConfig extends OkaeriConfig {
     public String marketHeader = "<gold><bold>Claim Marketplace</bold></gold>";
     public String marketEmpty = "<gray>No claims are currently listed. Run <gold>/claimmarket sell <price></gold> to list one of yours.";
     public String marketEntry = "<gray>- <gold><claim></gold> by <yellow><owner></yellow> — <green><price></green>";
+    public String marketRefund = "<red>The claim transfer failed. Your <gold><amount></gold> has been refunded. An admin has been notified.";
 
     // Auctions
     public String auctionStarted = "<green>Auction for <gold><claim></gold> started! Starting price <gold><price></gold>, ends in <gold><duration></gold> minutes.";
