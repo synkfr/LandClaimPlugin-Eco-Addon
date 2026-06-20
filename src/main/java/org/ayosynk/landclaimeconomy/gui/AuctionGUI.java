@@ -1,0 +1,180 @@
+package org.ayosynk.landclaimeconomy.gui;
+
+import net.kyori.adventure.text.Component;
+import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
+import org.ayosynk.landClaimPlugin.gui.GuiHelper;
+import org.ayosynk.landClaimPlugin.gui.framework.ClickAction;
+import org.ayosynk.landClaimPlugin.gui.framework.GuiItem;
+import org.ayosynk.landClaimPlugin.gui.framework.PaginatedGui;
+import org.ayosynk.landClaimPlugin.gui.framework.SlotDefinition;
+import org.ayosynk.landClaimPlugin.models.ClaimProfile;
+import org.ayosynk.landclaimeconomy.LandClaimEconomy;
+import org.ayosynk.landclaimeconomy.managers.AuctionManager;
+import org.ayosynk.landclaimeconomy.util.EconomyHook;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * GUI browser for active claim auctions. Click an auction to start a
+ * bidding flow (the actual amount is typed in chat, since Bedrock
+ * doesn't have native number pickers and Java players get faster
+ * input via /claimmarket bid anyway).
+ */
+public class AuctionGUI {
+
+    private static final String TITLE = "<dark_purple><bold>Claim Auctions</bold></dark_purple>";
+
+    public static void open(Player player, LandClaimEconomy plugin) {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            AuctionManager mgr = plugin.getAuctionManager();
+            if (mgr == null) {
+                player.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+                return;
+            }
+            List<AuctionManager.Auction> auctions = mgr.getActiveAuctions();
+            if (auctions.isEmpty()) {
+                player.sendMessage(plugin.getMessages().prefix
+                        + "<gray>No active auctions right now. Run <gold>/claimmarket auction start <name> <price></gold> to start one.");
+                return;
+            }
+
+            List<GuiItem> items = new ArrayList<>();
+            for (AuctionManager.Auction a : auctions) {
+                items.add(new GuiItem() {
+                    @Override
+                    public ItemStack render(Player viewer) {
+                        ItemStack item = new ItemStack(org.bukkit.Material.CLOCK);
+                        org.bukkit.inventory.meta.ItemMeta meta = item.getItemMeta();
+                        if (meta != null) {
+                            meta.displayName(Component.text("§d" + a.claimName));
+                            List<Component> lore = new ArrayList<>();
+                            lore.add(Component.text("§7Seller: §e" + a.sellerName));
+                            lore.add(Component.text("§7Starting: §a"
+                                    + EconomyHook.format(a.startingPrice)));
+                            lore.add(Component.text("§7Current bid: §a"
+                                    + EconomyHook.format(a.currentBid)));
+                            if (a.buyoutPrice > 0) {
+                                lore.add(Component.text("§7Buyout: §6"
+                                        + EconomyHook.format(a.buyoutPrice)));
+                            }
+                            lore.add(Component.text(""));
+                            long secs = a.secondsRemaining();
+                            long hours = secs / 3600;
+                            long mins = (secs % 3600) / 60;
+                            long ss = secs % 60;
+                            lore.add(Component.text("§7Ends in: §e"
+                                    + String.format("%dh %02dm %02ds", hours, mins, ss)));
+                            lore.add(Component.text(""));
+                            lore.add(Component.text("§7Left-click to bid"));
+                            if (a.sellerId.equals(viewer.getUniqueId())) {
+                                lore.add(Component.text("§cRight-click to cancel"));
+                            }
+                            meta.lore(lore);
+                            item.setItemMeta(meta);
+                        }
+                        return item;
+                    }
+
+                    @Override
+                    public ClickAction clickAction() {
+                        return (p, e) -> {
+                            if (e.isRightClick() && a.sellerId.equals(p.getUniqueId())) {
+                                p.closeInventory();
+                                ClaimProfile profile = lookupProfile(plugin, a.claimId);
+                                if (profile != null) {
+                                    Bukkit.getScheduler().runTask(plugin,
+                                            () -> mgr.cancelAuction(p, profile));
+                                }
+                                return;
+                            }
+                            if (e.isLeftClick()) {
+                                p.closeInventory();
+                                p.sendMessage(plugin.getMessages().prefix
+                                        + "<yellow>Type your bid amount in chat. Min bid: "
+                                        + EconomyHook.format(a.currentBid
+                                                + plugin.getEconomyConfig().auctionMinBidIncrement)
+                                        + (a.buyoutPrice > 0
+                                                ? " <dark_gray>(or "
+                                                        + EconomyHook.format(a.buyoutPrice)
+                                                        + " to buyout)"
+                                                : ""));
+                                // Listen for the next chat message.
+                                registerBidChatListener(p, plugin, a.claimId);
+                            }
+                        };
+                    }
+                });
+            }
+
+            String[] structure = {
+                    "x x x x x x x x x",
+                    "x x x x x x x x x",
+                    "x x x x x x x x x",
+                    "P n n n < n n n N"
+            };
+            Map<Character, SlotDefinition> ingredients = new HashMap<>();
+            ingredients.put('n', GuiHelper.buildSlot("BLACK_STAINED_GLASS_PANE", " ", java.util.List.of()));
+            ingredients.put('<', GuiHelper.buildSlot("ARROW", "<yellow>Back", java.util.List.of(),
+                    (p, e) -> p.closeInventory()));
+
+            Component title = GuiHelper.MM.deserialize(TITLE);
+            PaginatedGui gui = new PaginatedGui(title, 4, structure, ingredients, 'x');
+            gui.setPrevButton(27,
+                    GuiHelper.buildItemStack("ARROW", "<gray>Previous Page", java.util.List.of()),
+                    GuiHelper.buildItemStack("BLACK_STAINED_GLASS_PANE", " ", java.util.List.of()));
+            gui.setNextButton(35,
+                    GuiHelper.buildItemStack("ARROW", "<gray>Next Page", java.util.List.of()),
+                    GuiHelper.buildItemStack("BLACK_STAINED_GLASS_PANE", " ", java.util.List.of()));
+
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                gui.setContent(items, player);
+                gui.open(player);
+            });
+        });
+    }
+
+    private static void registerBidChatListener(Player player, LandClaimEconomy plugin,
+                                                 UUID claimId) {
+        class ChatListener implements org.bukkit.event.Listener {
+            @org.bukkit.event.EventHandler
+            public void onChat(org.bukkit.event.player.AsyncPlayerChatEvent ev) {
+                if (!ev.getPlayer().getUniqueId().equals(player.getUniqueId())) return;
+                ev.setCancelled(true);
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    org.bukkit.event.HandlerList.unregisterAll(this);
+                    double amount;
+                    try {
+                        amount = Double.parseDouble(ev.getMessage().trim());
+                    } catch (NumberFormatException nfe) {
+                        player.sendMessage(plugin.getMessages().prefix + "<red>Invalid number. Bid cancelled.");
+                        return;
+                    }
+                    ClaimProfile profile = lookupProfile(plugin, claimId);
+                    if (profile == null) {
+                        player.sendMessage(plugin.getMessages().prefix
+                                + plugin.getMessages().auctionClaimNotFound);
+                        return;
+                    }
+                    plugin.getAuctionManager().placeBid(player, profile, amount);
+                });
+            }
+        }
+        ChatListener listener = new ChatListener();
+        org.bukkit.Bukkit.getPluginManager().registerEvents(listener, plugin);
+        // Auto-expire after 30 seconds so we don't leak listeners.
+        Bukkit.getScheduler().runTaskLater(plugin,
+                () -> org.bukkit.event.HandlerList.unregisterAll(listener), 30L * 20L);
+    }
+
+    private static ClaimProfile lookupProfile(LandClaimEconomy plugin, UUID claimId) {
+        LandClaimAPI api = LandClaimAPI.getInstance();
+        return api != null ? api.getClaimById(claimId) : null;
+    }
+}
