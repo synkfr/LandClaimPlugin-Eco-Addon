@@ -1,0 +1,27 @@
+name: LandClaimPlugin-Economy
+version: "${project.version}"
+main: org.ayosynk.landclaimeconomy.LandClaimEconomy
+api-version: "1.21"
+author: AyoSynk
+description: Economy addon for LandClaimPlugin — claim/warp/invite costs, daily tax, claim marketplace.
+soft-depend: [LandClaimPlugin, Vault]
+folia-supported: true
+commands:
+  claimmarket:
+    description: Server-wide claim marketplace
+    aliases: [cmarket, claimbazaar]
+  claimtax:
+    description: View your current tax balance and owed amount
+permissions:
+  landclaimeconomy.bypass:
+    description: Bypass all economy charges (free claiming/warps/etc.)
+    default: op
+  landclaimeconomy.bypass.tax:
+    description: Bypass daily tax (no upkeep fees, no auto-unclaim)
+    default: op
+  landclaimeconomy.use:
+    description: Use the economy features (claim/warp costs, market)
+    default: true
+  landclaimeconomy.admin:
+    description: Admin commands (force-clear listings, refund all)
+    default: op
