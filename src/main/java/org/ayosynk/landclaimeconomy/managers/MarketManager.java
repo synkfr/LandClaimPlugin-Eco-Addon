@@ -202,9 +202,11 @@ public class MarketManager {
         // Transfer ownership via the public API. The claim profile is
         // either re-keyed (if buyer has no profile) or merged into
         // the buyer's existing profile (so they keep their own claim).
+        // The buyer passes themselves as the actor — they're allowed to
+        // transfer a claim to themselves without needing admin.
         LandClaimAPI api = LandClaimAPI.getInstance();
         if (api != null) {
-            boolean transferred = api.transferClaim(profile.getProfileId(), buyer.getUniqueId());
+            boolean transferred = api.transferClaim(buyer, profile.getProfileId(), buyer.getUniqueId());
             if (!transferred) {
                 plugin.getLogger().warning("Claim transfer failed for profileId " + profile.getProfileId()
                         + " — buyer paid but the claim was not reassigned. Manual admin intervention required.");

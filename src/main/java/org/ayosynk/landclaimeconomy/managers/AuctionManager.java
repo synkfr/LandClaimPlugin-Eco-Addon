@@ -340,10 +340,13 @@ public class AuctionManager {
         plugin.getDatabase().logTransaction(auction.sellerId.toString(),
                 auction.claimId.toString(), "AUCTION_SALE", payout, auction.claimName);
 
-        // Transfer the claim via the public API.
+        // Transfer the claim via the public API. The winner passes themselves
+        // as the actor — they're allowed to transfer the claim to
+        // themselves without needing admin permission.
         LandClaimAPI api = LandClaimAPI.getInstance();
         if (api != null) {
-            api.transferClaim(auction.claimId, winnerId);
+            org.bukkit.entity.Player winnerOnline = Bukkit.getPlayer(winnerId);
+            api.transferClaim(winnerOnline, auction.claimId, winnerId);
         }
 
         // Notify both sides.

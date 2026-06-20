@@ -147,9 +147,10 @@ public class TaxManager {
             int newUnpaidDays = unpaidDays + (int) elapsedDays;
             if (newUnpaidDays > cfg.taxGracePeriodDays && cfg.taxGracePeriodDays > 0) {
                 // Auto-unclaim: now possible via the public API's
-                // unclaimAll(profileId) which doesn't need a Player
-                // context. The owner's chunks are wiped in one shot.
-                int unclaimed = plugin.getParentAPI().unclaimAll(profile.getProfileId());
+                // unclaimAll(actor, profileId). Pass null actor to
+                // signal a system-initiated call (bypasses the admin
+                // permission gate — the system itself is the actor).
+                int unclaimed = plugin.getParentAPI().unclaimAll(null, profile.getProfileId());
                 if (unclaimed > 0) {
                     plugin.getLogger().info("Auto-unclaimed " + unclaimed
                             + " chunk(s) of claim '" + profile.getName()
