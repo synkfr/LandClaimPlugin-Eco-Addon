@@ -1,6 +1,9 @@
 package org.ayosynk.landclaimeconomy.config;
 
 import eu.okaeri.configs.OkaeriConfig;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 
 public class MessagesConfig extends OkaeriConfig {
 
@@ -28,7 +31,7 @@ public class MessagesConfig extends OkaeriConfig {
     public String taxAutoUnclaimed = "<red><gold><count></gold> chunk(s) of <gold><claim></gold> were auto-unclaimed because the tax went unpaid for <gold><days></gold> day(s).";
 
     // Market
-    public String marketListed = "<green>Listed <gold><claim></gold> for sale at <gold><price></gold>. Buyers can run <gold>/claimmarket buy <claim></gold>.";
+    public String marketListed = "<green>Listed <gold><claim></gold> for sale at <gold><price></gold>. Buyers can browse with <gold>/claimmarket</gold>.";
     public String marketUnlisted = "<gray>Removed the listing for <gold><claim></gold>.";
     public String marketSold = "<green>Sold <gold><claim></gold> to <gold><buyer></gold> for <gold><price></gold>!";
     public String marketBought = "<green>You now own <gold><claim></gold>. <gold><price></gold> was transferred to <gold><seller></gold>.";
@@ -36,7 +39,7 @@ public class MessagesConfig extends OkaeriConfig {
     public String marketAlreadyListed = "<red><gold><claim></gold> is already listed. Unlist it first.";
     public String marketPriceInvalid = "<red>Price must be a positive number.";
     public String marketHeader = "<gold><bold>Claim Marketplace</bold></gold>";
-    public String marketEmpty = "<gray>No claims are currently listed. Run <gold>/claimmarket sell <price></gold> to list one of yours.";
+    public String marketEmpty = "<gray>No claims are currently listed. Use <gold>/claimmarket sell</gold> to list one of yours.";
     public String marketEntry = "<gray>- <gold><claim></gold> by <yellow><owner></yellow> — <green><price></green>";
     public String marketRefund = "<red>The claim transfer failed. Your <gold><amount></gold> has been refunded. An admin has been notified.";
 
@@ -59,8 +62,66 @@ public class MessagesConfig extends OkaeriConfig {
     public String auctionHeader = "<dark_purple><bold>Active Auctions</bold></dark_purple>";
     public String auctionEntry = "<gray>- <gold><claim></gold> by <yellow><owner></yellow> — <green><current></green> (<yellow><ends></yellow>)";
 
+    // Profile picker / flow
+    public String pickerTitleSell = "<gold><bold>Pick a profile to list</bold></gold>";
+    public String pickerTitleAuction = "<gold><bold>Pick a profile to auction</bold></gold>";
+    public String pickerTitleCancel = "<red><bold>Pick an auction to cancel</bold></red>";
+    public String pickerEmpty = "<gray>You have no claim profiles. Claim some chunks first.";
+    public String pickerProfileEntry = "<gray><chunks></gray> chunk(s)";
+    public String pricePrompt = "<yellow>Type the listing price in chat (or type <gold>cancel</gold> to abort).";
+    public String auctionPromptPrice = "<yellow>Type the starting price for the auction (or <gold>cancel</gold>).";
+    public String auctionPromptDuration = "<yellow>Type the duration in minutes (or <gold>cancel</gold>). Default: <gold><default></gold>.";
+    public String auctionPromptBuyout = "<yellow>Type the buyout price, or <gold>0</gold> for none (or <gold>cancel</gold>).";
+    public String flowCancelled = "<gray>Action cancelled.";
+    public String invalidNumber = "<red>That's not a valid number.";
+
     // Misc
     public String reload = "<green>LandClaimPlugin-Economy configuration reloaded.";
     public String notOwner = "<red>You don't own a claim with that name.";
     public String claimNotFound = "<red>No claim found by that name.";
+
+    // ========== Formatting helpers ==========
+
+    private static final MiniMessage MM = MiniMessage.miniMessage();
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
+
+    /**
+     * Format a MiniMessage template into a legacy-section-encoded string suitable for
+     * {@code Player.sendMessage(String)}. Prepends the configured prefix and substitutes
+     * the supplied placeholder/value pairs (alternating keys and values).
+     *
+     * <p>Why this exists: {@code Player.sendMessage(String)} interprets the argument as
+     * legacy {@code §}-colored text, not as MiniMessage tags. Without deserializing first,
+     * the {@code <red>} / {@code <gold>} tags in our messages appear as literal text in
+     * chat. This helper does the deserialize + legacy-serialize pipeline so the call site
+     * can stay a one-liner.</p>
+     *
+     * @param template MiniMessage template (may contain placeholders like {@code <claim>})
+     * @param placeholderValuePairs alternating placeholder keys and replacement values
+     * @return legacy-encoded string ready for {@code sendMessage(String)}
+     */
+    public String format(String template, String... placeholderValuePairs) {
+        for (int i = 0; i + 1 < placeholderValuePairs.length; i += 2) {
+            template = template.replace(placeholderValuePairs[i], placeholderValuePairs[i + 1]);
+        }
+        return formatRaw(prefix + template);
+    }
+
+    /**
+     * Like {@link #format(String, String...)} but skips the prefix — useful for messages
+     * that already include their own prefix (admin broadcasts, etc.) or for raw chat
+     * rendering of strings that should not be prefixed.
+     */
+    public String formatUnprefixed(String template, String... placeholderValuePairs) {
+        for (int i = 0; i + 1 < placeholderValuePairs.length; i += 2) {
+            template = template.replace(placeholderValuePairs[i], placeholderValuePairs[i + 1]);
+        }
+        return formatRaw(template);
+    }
+
+    /** Deserialize a MiniMessage string and re-serialize as legacy {@code §} text. */
+    public static String formatRaw(String miniMessage) {
+        Component comp = MM.deserialize(miniMessage);
+        return LEGACY.serialize(comp);
+    }
 }

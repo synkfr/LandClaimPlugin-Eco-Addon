@@ -72,21 +72,22 @@
         </dependency>
 
         <!--
-            Okaeri configs is shaded into the parent JAR and not exported as a
-            transitive dep, so we declare it directly. Same version as the parent
-            (6.1.0-beta.1) to keep behaviour consistent.
+            Okaeri configs is shaded into the parent JAR and relocated to a
+            different package, and Bukkit plugin classloaders are isolated, so
+            the parent JAR cannot satisfy this addon's `eu.okaeri.*` references
+            at runtime. We must shade our own copy (relocated to avoid any
+            future collision with the parent's copy) and bundle snakeyaml
+            transitively, which the YAML configurer needs.
         -->
         <dependency>
             <groupId>eu.okaeri</groupId>
             <artifactId>okaeri-configs-yaml-bukkit</artifactId>
             <version>6.1.0-beta.1</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>eu.okaeri</groupId>
             <artifactId>okaeri-configs-serdes-bukkit</artifactId>
             <version>6.1.0-beta.1</version>
-            <scope>provided</scope>
         </dependency>
     </dependencies>
 
@@ -101,6 +102,41 @@
                     <source>${java.version}</source>
                     <target>${java.version}</target>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <relocations>
+                                <relocation>
+                                    <pattern>eu.okaeri</pattern>
+                                    <shadedPattern>org.ayosynk.landclaimeconomy.lib.okaeri</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.yaml</pattern>
+                                    <shadedPattern>org.ayosynk.landclaimeconomy.lib.yaml</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
         <resources>

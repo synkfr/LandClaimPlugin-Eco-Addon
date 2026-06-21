@@ -4,9 +4,9 @@ import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
 import org.ayosynk.landClaimPlugin.models.ClaimProfile;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
 public class TaxManager {
 
     private final LandClaimEconomy plugin;
-    private BukkitTask task;
+    private FoliaScheduler.ScheduledHandle task;
 
     // A claim is "tax-locked" if it has been auto-unclaimed this tick —
     // we cache the profile id to skip it on the rest of the iteration
@@ -47,8 +47,7 @@ public class TaxManager {
     public void start() {
         if (task != null) return;
         long ticks = plugin.getEconomyConfig().taxIntervalMinutes * 60 * 20L;
-        task = Bukkit.getScheduler().runTaskTimer(plugin, this::tick,
-                ticks, ticks);
+        task = FoliaScheduler.runTaskTimer(plugin, this::tick, ticks, ticks);
     }
 
     public void stop() {
@@ -135,12 +134,16 @@ public class TaxManager {
             plugin.getDatabase().logTransaction(ownerId.toString(),
                     profile.getProfileId().toString(), "TAX", -owed,
                     profile.getName());
+            // tickClaim runs on the global region thread; the owner may be on
+            // a different region. Route the message through runForPlayer.
             if (owner.isOnline() && owner.getPlayer() != null) {
-                owner.getPlayer().sendMessage(plugin.getMessages().prefix
+                org.bukkit.entity.Player ownerPlayer = owner.getPlayer();
+                String msg = plugin.getMessages().prefix
                         + plugin.getMessages().taxPaid
                                 .replace("<amount>", EconomyHook.format(owed))
                                 .replace("<chunks>", String.valueOf(chunkCount))
-                                .replace("<claim>", profile.getName()));
+                                .replace("<claim>", profile.getName());
+                FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
             }
         } else {
             // Couldn't pay — bump the unpaid counter and check the grace period.
@@ -158,21 +161,25 @@ public class TaxManager {
                             + newUnpaidDays + " day(s).");
                 }
                 if (owner.isOnline() && owner.getPlayer() != null) {
-                    owner.getPlayer().sendMessage(plugin.getMessages().prefix
+                    org.bukkit.entity.Player ownerPlayer = owner.getPlayer();
+                    String msg = plugin.getMessages().prefix
                             + plugin.getMessages().taxAutoUnclaimed
                                     .replace("<count>", String.valueOf(unclaimed))
                                     .replace("<claim>", profile.getName())
-                                    .replace("<days>", String.valueOf(cfg.taxGracePeriodDays)));
+                                    .replace("<days>", String.valueOf(cfg.taxGracePeriodDays));
+                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
                 }
                 writeLedger(profile.getProfileId(), now, 0, 0);
             } else {
                 writeLedger(profile.getProfileId(), lastPaid, newUnpaidDays, chunkCount);
                 if (owner.isOnline() && owner.getPlayer() != null) {
                     long deadline = lastPaid + TimeUnit.DAYS.toMillis(cfg.taxGracePeriodDays);
-                    owner.getPlayer().sendMessage(plugin.getMessages().prefix
+                    org.bukkit.entity.Player ownerPlayer = owner.getPlayer();
+                    String msg = plugin.getMessages().prefix
                             + plugin.getMessages().taxInsufficient
                                     .replace("<amount>", EconomyHook.format(owed))
-                                    .replace("<deadline>", new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(deadline))));
+                                    .replace("<deadline>", new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(deadline)));
+                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
                 }
             }
         }

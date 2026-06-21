@@ -9,7 +9,7 @@ import org.ayosynk.landClaimPlugin.gui.framework.SlotDefinition;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.managers.MarketManager;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
-import org.bukkit.Bukkit;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.inventory.ItemStack;
@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Server-wide marketplace GUI. Lists every active market listing with
@@ -40,23 +41,30 @@ public class MarketplaceGUI {
      *               Listings" sub-view.
      */
     public static void open(Player player, LandClaimEconomy plugin, int page, boolean myOnly) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        // Capture player state on the calling thread (which on Folia is already the
+        // player's region thread, since open() is invoked from a sync event handler)
+        // so the async block below doesn't need to touch Player at all.
+        java.util.UUID viewerId = player.getUniqueId();
+        FoliaScheduler.runAsync(plugin, () -> {
             var market = plugin.getMarketManager();
             if (market == null) {
-                player.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+                FoliaScheduler.runForPlayer(plugin, player,
+                        () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                + plugin.getMessages().featureDisabled)));
                 return;
             }
 
             List<MarketManager.Listing> all = market.getActiveListings();
             if (myOnly) {
-                all.removeIf(l -> !l.ownerId.equals(player.getUniqueId()));
+                all.removeIf(l -> !l.ownerId.equals(viewerId));
             }
 
             if (all.isEmpty()) {
-                player.sendMessage(plugin.getMessages().prefix
-                        + (myOnly
-                                ? "<gray>You don't have any active listings."
-                                : plugin.getMessages().marketEmpty));
+                FoliaScheduler.runForPlayer(plugin, player,
+                        () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                + (myOnly
+                                        ? "<gray>You don't have any active listings."
+                                        : plugin.getMessages().marketEmpty))));
                 return;
             }
 
@@ -99,17 +107,17 @@ public class MarketplaceGUI {
                                 org.ayosynk.landClaimPlugin.models.ClaimProfile profile =
                                         api != null ? api.getClaimById(l.claimId) : null;
                                 if (profile != null) {
-                                    Bukkit.getScheduler().runTask(plugin,
+                                    FoliaScheduler.runForPlayer(plugin, p,
                                             () -> market.unlist(p, profile));
                                 }
-                                Bukkit.getScheduler().runTaskLater(plugin,
+                                FoliaScheduler.runForPlayerLater(plugin, p,
                                         () -> open(p, plugin, 0, true), 5L);
                                 return;
                             }
                             if (e.getClick() == ClickType.LEFT) {
                                 if (l.ownerId.equals(p.getUniqueId())) {
-                                    p.sendMessage(plugin.getMessages().prefix
-                                            + "<red>You already own this claim.");
+                                    p.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                            + "<red>You already own this claim."));
                                     return;
                                 }
                                 p.closeInventory();
@@ -121,12 +129,12 @@ public class MarketplaceGUI {
                                 org.ayosynk.landClaimPlugin.models.ClaimProfile profile =
                                         api != null ? api.getClaimById(l.claimId) : null;
                                 if (profile == null) {
-                                    p.sendMessage(plugin.getMessages().prefix
-                                            + plugin.getMessages().claimNotFound);
+                                    p.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                            + plugin.getMessages().claimNotFound));
                                     return;
                                 }
                                 org.ayosynk.landClaimPlugin.models.ClaimProfile finalProfile = profile;
-                                Bukkit.getScheduler().runTask(plugin,
+                                FoliaScheduler.runForPlayer(plugin, p,
                                         () -> market.buy(p, finalProfile));
                             }
                         };
@@ -150,7 +158,7 @@ public class MarketplaceGUI {
                     (p, e) -> {
                         p.closeInventory();
                         if (myOnly) {
-                            Bukkit.getScheduler().runTaskLater(plugin,
+                            FoliaScheduler.runForPlayerLater(plugin, p,
                                     () -> open(p, plugin, 0, false), 5L);
                         }
                     }));
@@ -165,7 +173,7 @@ public class MarketplaceGUI {
                     GuiHelper.buildItemStack("ARROW", "<gray>Next Page", java.util.List.of()),
                     GuiHelper.buildItemStack("BLACK_STAINED_GLASS_PANE", " ", java.util.List.of()));
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            FoliaScheduler.runForPlayer(plugin, player, () -> {
                 gui.setContent(contentItems, player);
                 gui.open(player);
             });

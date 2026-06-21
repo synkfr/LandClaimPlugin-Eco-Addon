@@ -2,12 +2,13 @@ package org.ayosynk.landclaimeconomy.managers;
 
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
-import org.bukkit.Bukkit;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Charges the player when they run {@code /claim setwarp <name> [public]}.
@@ -52,10 +53,10 @@ public class WarpCostManager implements Listener {
 
         if (!EconomyHook.has(player, cost)) {
             event.setCancelled(true);
-            player.sendMessage(plugin.getMessages().prefix
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(cost))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
         if (!EconomyHook.withdraw(player, cost)) {
@@ -68,10 +69,10 @@ public class WarpCostManager implements Listener {
                 null, "WARP_COST", finalCost, name);
         // Defer the success message to next tick so the parent's
         // "warp set" message lands first and we don't race the chat order.
-        Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(plugin.getMessages().prefix
+        FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().warpCharged
                         .replace("<cost>", EconomyHook.format(finalCost))
                         .replace("<name>", name)
-                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));
     }
 }

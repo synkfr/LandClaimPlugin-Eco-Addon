@@ -14,6 +14,7 @@ import org.ayosynk.landclaimeconomy.managers.MarketManager;
 import org.ayosynk.landclaimeconomy.managers.TaxManager;
 import org.ayosynk.landclaimeconomy.managers.WarpCostManager;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
+import org.ayosynk.landclaimeconomy.util.PlayerNameCache;
 import org.ayosynk.landClaimPlugin.LandClaimPlugin;
 import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
 import org.bukkit.Bukkit;
@@ -28,6 +29,7 @@ public class LandClaimEconomy extends JavaPlugin {
     private EconomyConfig economyConfig;
     private MessagesConfig messagesConfig;
     private EconomyDatabase database;
+    private PlayerNameCache nameCache;
 
     private ClaimCostManager claimCostManager;
     private WarpCostManager warpCostManager;
@@ -75,6 +77,11 @@ public class LandClaimEconomy extends JavaPlugin {
         this.database = new EconomyDatabase(this, parent.getDatabaseManager());
         this.database.createTables();
 
+        // Name cache. Registers a listener for AsyncPlayerPreLoginEvent so we never
+        // have to do blocking usercache.json I/O from a region/global-region thread.
+        this.nameCache = new PlayerNameCache(this);
+        this.nameCache.register();
+
         // Managers.
         this.claimCostManager = new ClaimCostManager(this);
         this.warpCostManager = new WarpCostManager(this);
@@ -89,6 +96,14 @@ public class LandClaimEconomy extends JavaPlugin {
         server.registerEvents(claimCostManager, this);
         server.registerEvents(warpCostManager, this);
         server.registerEvents(inviteCostManager, this);
+
+        // Tab completer. We register it against the primary alias only —
+        // Bukkit propagates it to the aliases automatically. The command
+        // dispatcher in onCommand() below handles all three aliases.
+        var claimMarketCmd = getCommand("claimmarket");
+        if (claimMarketCmd != null) {
+            claimMarketCmd.setTabCompleter(marketCommand);
+        }
 
         // Tax scheduler.
         if (economyConfig.enabled && economyConfig.tax.enabled) {
@@ -139,6 +154,10 @@ public class LandClaimEconomy extends JavaPlugin {
 
     public LandClaimAPI getParentAPI() {
         return LandClaimAPI.getInstance();
+    }
+
+    public PlayerNameCache getNameCache() {
+        return nameCache;
     }
 
     public MarketManager getMarketManager() {

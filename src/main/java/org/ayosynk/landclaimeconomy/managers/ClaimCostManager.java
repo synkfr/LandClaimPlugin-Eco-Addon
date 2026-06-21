@@ -12,6 +12,7 @@ import org.bukkit.event.Listener;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Charges the player when they claim a chunk.
@@ -66,8 +67,8 @@ public class ClaimCostManager implements Listener {
                 && api.getTotalChunksByOwner(pid) == 0) {
             // Their first chunk ever is free.
             firstClaimDone.add(pid);
-            player.sendMessage(plugin.getMessages().prefix
-                    + plugin.getMessages().claimFirstFree);
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().claimFirstFree));
             return;
         }
 
@@ -82,26 +83,26 @@ public class ClaimCostManager implements Listener {
         cost = applyDailyCap(pid, cost, cfg.dailyChargeCap);
 
         if (cost <= 0) {
-            player.sendMessage(plugin.getMessages().prefix
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().claimDailyCapReached
-                            .replace("<cap>", EconomyHook.format(cfg.dailyChargeCap)));
+                            .replace("<cap>", EconomyHook.format(cfg.dailyChargeCap))));
             return;
         }
 
         if (!EconomyHook.has(player, cost)) {
-            player.sendMessage(plugin.getMessages().prefix
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(cost))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             event.setCancelled(true);
             return;
         }
 
         if (!EconomyHook.withdraw(player, cost)) {
-            player.sendMessage(plugin.getMessages().prefix
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(cost))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             event.setCancelled(true);
             return;
         }
@@ -111,10 +112,10 @@ public class ClaimCostManager implements Listener {
                 event.getProfile() != null ? event.getProfile().getProfileId().toString() : null,
                 "CLAIM_COST", cost, event.getProfile() != null ? event.getProfile().getName() : null);
 
-        player.sendMessage(plugin.getMessages().prefix
+        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().claimCharged
                         .replace("<cost>", EconomyHook.format(cost))
-                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))));
+                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
     }
 
     private double applyDailyCap(UUID pid, double cost, double cap) {

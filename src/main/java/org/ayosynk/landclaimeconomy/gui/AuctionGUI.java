@@ -11,7 +11,7 @@ import org.ayosynk.landClaimPlugin.models.ClaimProfile;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.managers.AuctionManager;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
-import org.bukkit.Bukkit;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * GUI browser for active claim auctions. Click an auction to start a
@@ -32,16 +33,19 @@ public class AuctionGUI {
     private static final String TITLE = "<dark_purple><bold>Claim Auctions</bold></dark_purple>";
 
     public static void open(Player player, LandClaimEconomy plugin) {
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+        FoliaScheduler.runAsync(plugin, () -> {
             AuctionManager mgr = plugin.getAuctionManager();
             if (mgr == null) {
-                player.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+                FoliaScheduler.runForPlayer(plugin, player,
+                        () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                + plugin.getMessages().featureDisabled)));
                 return;
             }
             List<AuctionManager.Auction> auctions = mgr.getActiveAuctions();
             if (auctions.isEmpty()) {
-                player.sendMessage(plugin.getMessages().prefix
-                        + "<gray>No active auctions right now. Run <gold>/claimmarket auction start <name> <price></gold> to start one.");
+                FoliaScheduler.runForPlayer(plugin, player,
+                        () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                + "<gray>No active auctions right now. Run <gold>/claimmarket auction start <name> <price></gold> to start one.")));
                 return;
             }
 
@@ -89,14 +93,14 @@ public class AuctionGUI {
                                 p.closeInventory();
                                 ClaimProfile profile = lookupProfile(plugin, a.claimId);
                                 if (profile != null) {
-                                    Bukkit.getScheduler().runTask(plugin,
+                                    FoliaScheduler.runForPlayer(plugin, p,
                                             () -> mgr.cancelAuction(p, profile));
                                 }
                                 return;
                             }
                             if (e.isLeftClick()) {
                                 p.closeInventory();
-                                p.sendMessage(plugin.getMessages().prefix
+                                p.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                                         + "<yellow>Type your bid amount in chat. Min bid: "
                                         + EconomyHook.format(a.currentBid
                                                 + plugin.getEconomyConfig().auctionMinBidIncrement)
@@ -104,7 +108,7 @@ public class AuctionGUI {
                                                 ? " <dark_gray>(or "
                                                         + EconomyHook.format(a.buyoutPrice)
                                                         + " to buyout)"
-                                                : ""));
+                                                : "")));
                                 // Listen for the next chat message.
                                 registerBidChatListener(p, plugin, a.claimId);
                             }
@@ -133,7 +137,7 @@ public class AuctionGUI {
                     GuiHelper.buildItemStack("ARROW", "<gray>Next Page", java.util.List.of()),
                     GuiHelper.buildItemStack("BLACK_STAINED_GLASS_PANE", " ", java.util.List.of()));
 
-            Bukkit.getScheduler().runTask(plugin, () -> {
+            FoliaScheduler.runForPlayer(plugin, player, () -> {
                 gui.setContent(items, player);
                 gui.open(player);
             });
@@ -147,19 +151,19 @@ public class AuctionGUI {
             public void onChat(org.bukkit.event.player.AsyncPlayerChatEvent ev) {
                 if (!ev.getPlayer().getUniqueId().equals(player.getUniqueId())) return;
                 ev.setCancelled(true);
-                Bukkit.getScheduler().runTask(plugin, () -> {
+                FoliaScheduler.runForPlayer(plugin, player, () -> {
                     org.bukkit.event.HandlerList.unregisterAll(this);
                     double amount;
                     try {
                         amount = Double.parseDouble(ev.getMessage().trim());
                     } catch (NumberFormatException nfe) {
-                        player.sendMessage(plugin.getMessages().prefix + "<red>Invalid number. Bid cancelled.");
+                        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + "<red>Invalid number. Bid cancelled."));
                         return;
                     }
                     ClaimProfile profile = lookupProfile(plugin, claimId);
                     if (profile == null) {
-                        player.sendMessage(plugin.getMessages().prefix
-                                + plugin.getMessages().auctionClaimNotFound);
+                        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                                + plugin.getMessages().auctionClaimNotFound));
                         return;
                     }
                     plugin.getAuctionManager().placeBid(player, profile, amount);
@@ -169,7 +173,7 @@ public class AuctionGUI {
         ChatListener listener = new ChatListener();
         org.bukkit.Bukkit.getPluginManager().registerEvents(listener, plugin);
         // Auto-expire after 30 seconds so we don't leak listeners.
-        Bukkit.getScheduler().runTaskLater(plugin,
+        FoliaScheduler.runForPlayerLater(plugin, player,
                 () -> org.bukkit.event.HandlerList.unregisterAll(listener), 30L * 20L);
     }
 

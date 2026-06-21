@@ -4,6 +4,7 @@ import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
 import org.ayosynk.landClaimPlugin.models.ClaimProfile;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
+import org.ayosynk.landclaimeconomy.util.PlayerNameCache;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -15,6 +16,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Server-wide claim marketplace — owners can list their claims for sale,
@@ -59,28 +61,28 @@ public class MarketManager {
 
     public boolean list(Player seller, ClaimProfile profile, double price) {
         if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().market.enabled) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
             return false;
         }
         if (price <= 0) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().marketPriceInvalid);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().marketPriceInvalid));
             return false;
         }
         double max = plugin.getEconomyConfig().marketMaxPrice;
         if (max > 0 && price > max) {
-            seller.sendMessage(plugin.getMessages().prefix
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + "<red>Price exceeds the server cap of <gold>"
-                    + EconomyHook.format(max) + "<red>.");
+                    + EconomyHook.format(max) + "<red>."));
             return false;
         }
         if (isListed(profile.getProfileId())) {
-            seller.sendMessage(plugin.getMessages().prefix
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().marketAlreadyListed
-                            .replace("<claim>", profile.getName()));
+                            .replace("<claim>", profile.getName())));
             return false;
         }
         if (!profile.isOwner(seller.getUniqueId())) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().notOwner);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().notOwner));
             return false;
         }
 
@@ -88,17 +90,17 @@ public class MarketManager {
         double fee = plugin.getEconomyConfig().marketListingFee;
         if (fee > 0) {
             if (!EconomyHook.has(seller, fee)) {
-                seller.sendMessage(plugin.getMessages().prefix
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + plugin.getMessages().insufficientFunds
                                 .replace("<cost>", EconomyHook.format(fee))
-                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller))));
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller)))));
                 return false;
             }
             if (!EconomyHook.withdraw(seller, fee)) {
-                seller.sendMessage(plugin.getMessages().prefix
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + plugin.getMessages().insufficientFunds
                                 .replace("<cost>", EconomyHook.format(fee))
-                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller))));
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller)))));
                 return false;
             }
             plugin.getDatabase().logTransaction(seller.getUniqueId().toString(),
@@ -116,32 +118,32 @@ public class MarketManager {
             ps.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().warning("Failed to list claim: " + e.getMessage());
-            seller.sendMessage(plugin.getMessages().prefix + "<red>Failed to list the claim. See console.");
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + "<red>Failed to list the claim. See console."));
             return false;
         }
 
-        seller.sendMessage(plugin.getMessages().prefix
+        seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().marketListed
                         .replace("<claim>", profile.getName())
-                        .replace("<price>", EconomyHook.format(price)));
+                        .replace("<price>", EconomyHook.format(price))));
         return true;
     }
 
     public boolean unlist(Player seller, ClaimProfile profile) {
         if (!isListed(profile.getProfileId())) {
-            seller.sendMessage(plugin.getMessages().prefix
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().marketNotListed
-                            .replace("<claim>", profile.getName()));
+                            .replace("<claim>", profile.getName())));
             return false;
         }
         if (!profile.isOwner(seller.getUniqueId()) && !seller.hasPermission("landclaim.admin")) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().notOwner);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().notOwner));
             return false;
         }
         deleteListing(profile.getProfileId());
-        seller.sendMessage(plugin.getMessages().prefix
+        seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().marketUnlisted
-                        .replace("<claim>", profile.getName()));
+                        .replace("<claim>", profile.getName())));
         return true;
     }
 
@@ -153,33 +155,33 @@ public class MarketManager {
      */
     public boolean buy(Player buyer, ClaimProfile profile) {
         if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().market.enabled) {
-            buyer.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
             return false;
         }
         Listing listing = getListing(profile.getProfileId());
         if (listing == null) {
-            buyer.sendMessage(plugin.getMessages().prefix
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().marketNotListed
-                            .replace("<claim>", profile.getName()));
+                            .replace("<claim>", profile.getName())));
             return false;
         }
         if (listing.ownerId.equals(buyer.getUniqueId())) {
-            buyer.sendMessage(plugin.getMessages().prefix
-                    + "<red>You already own this claim.");
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + "<red>You already own this claim."));
             return false;
         }
         if (!EconomyHook.has(buyer, listing.price)) {
-            buyer.sendMessage(plugin.getMessages().prefix
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(listing.price))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(buyer))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(buyer)))));
             return false;
         }
         if (!EconomyHook.withdraw(buyer, listing.price)) {
-            buyer.sendMessage(plugin.getMessages().prefix
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(listing.price))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(buyer))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(buyer)))));
             return false;
         }
 
@@ -224,23 +226,29 @@ public class MarketManager {
             plugin.getLogger().warning("Claim transfer failed for profileId " + profile.getProfileId()
                     + " — refunded buyer " + buyer.getUniqueId() + " (" + listing.price + ") and seller "
                     + seller.getUniqueId() + " (" + sellerPayout + "). Manual admin intervention required.");
-            buyer.sendMessage(plugin.getMessages().prefix
+            buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().marketRefund
-                            .replace("<amount>", EconomyHook.format(listing.price)));
+                            .replace("<amount>", EconomyHook.format(listing.price))));
             return false;
         }
 
-        buyer.sendMessage(plugin.getMessages().prefix
+        buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().marketBought
                         .replace("<claim>", profile.getName())
                         .replace("<price>", EconomyHook.format(listing.price))
-                        .replace("<seller>", listing.ownerName));
+                        .replace("<seller>", listing.ownerName)));
+        // Seller is on a different region from the buyer on Folia. Route the
+        // notification through runForPlayer instead of touching their Player
+        // object directly.
         if (seller.isOnline() && seller.getPlayer() != null) {
-            seller.getPlayer().sendMessage(plugin.getMessages().prefix
+            Player sellerOnline = seller.getPlayer();
+            String msg = plugin.getMessages().prefix
                     + plugin.getMessages().marketSold
                             .replace("<claim>", profile.getName())
                             .replace("<buyer>", buyer.getName())
-                            .replace("<price>", EconomyHook.format(sellerPayout)));
+                            .replace("<price>", EconomyHook.format(sellerPayout));
+            org.ayosynk.landclaimeconomy.util.FoliaScheduler.runForPlayer(plugin, sellerOnline,
+                    () -> sellerOnline.sendMessage(msg));
         }
         return true;
     }
@@ -259,8 +267,7 @@ public class MarketManager {
                     long listedAt = rs.getLong(4);
 
                     String claimName = "<unknown>";
-                    String ownerName = Bukkit.getOfflinePlayer(ownerId).getName();
-                    if (ownerName == null) ownerName = ownerId.toString();
+                    String ownerName = plugin.getNameCache().getName(ownerId);
                     // Use the new public-API lookup instead of iterating
                     // every owner's profile list.
                     LandClaimAPI api = LandClaimAPI.getInstance();

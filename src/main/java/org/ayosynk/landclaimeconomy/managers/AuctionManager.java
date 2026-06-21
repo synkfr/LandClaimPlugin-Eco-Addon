@@ -4,10 +4,11 @@ import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
 import org.ayosynk.landClaimPlugin.models.ClaimProfile;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
+import org.ayosynk.landclaimeconomy.util.PlayerNameCache;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -16,6 +17,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Time-limited claim auctions. Owners start an auction on one of their
@@ -31,7 +33,7 @@ import java.util.UUID;
 public class AuctionManager {
 
     private final LandClaimEconomy plugin;
-    private BukkitTask checkTask;
+    private FoliaScheduler.ScheduledHandle checkTask;
 
     public static class Auction {
         public final int auctionId;
@@ -81,8 +83,7 @@ public class AuctionManager {
     public void start() {
         if (checkTask != null) return;
         long ticks = plugin.getEconomyConfig().auctionCheckIntervalSeconds * 20L;
-        checkTask = Bukkit.getScheduler().runTaskTimer(plugin, this::checkEnded,
-                ticks, ticks);
+        checkTask = FoliaScheduler.runTaskTimer(plugin, this::checkEnded, ticks, ticks);
     }
 
     public void stop() {
@@ -99,32 +100,32 @@ public class AuctionManager {
     public boolean startAuction(Player seller, ClaimProfile profile, double startingPrice,
                                  long durationMinutes, double buyoutPrice) {
         if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().auction.enabled) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().featureDisabled);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
             return false;
         }
         if (startingPrice <= 0) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().marketPriceInvalid);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().marketPriceInvalid));
             return false;
         }
         if (durationMinutes <= 0) {
             durationMinutes = (long) plugin.getEconomyConfig().auctionDefaultDurationMinutes;
         }
         if (!profile.isOwner(seller.getUniqueId())) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionNotOwner);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotOwner));
             return false;
         }
         if (getAuctionForClaim(profile.getProfileId()) != null) {
-            seller.sendMessage(plugin.getMessages().prefix
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().auctionAlreadyOnAuction
-                            .replace("<claim>", profile.getName()));
+                            .replace("<claim>", profile.getName())));
             return false;
         }
         int max = plugin.getEconomyConfig().auctionMaxPerPlayer;
         if (max > 0) {
             int active = countActiveAuctions(seller.getUniqueId());
             if (active >= max) {
-                seller.sendMessage(plugin.getMessages().prefix
-                        + plugin.getMessages().auctionMaxReached.replace("<max>", String.valueOf(max)));
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().auctionMaxReached.replace("<max>", String.valueOf(max))));
                 return false;
             }
         }
@@ -134,13 +135,13 @@ public class AuctionManager {
         if (buyoutPrice > 0) {
             double minBuyout = startingPrice * plugin.getEconomyConfig().auctionMinBuyoutMultiplier;
             if (buyoutPrice < minBuyout) {
-                seller.sendMessage(plugin.getMessages().prefix
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + "<red>Buyout price must be at least <gold>"
                         + EconomyHook.format(minBuyout)
                         + "</gold> (<gold>"
                         + plugin.getEconomyConfig().auctionMinBuyoutMultiplier
                         + "x</gold> the starting price of <gold>"
-                        + EconomyHook.format(startingPrice) + "</gold>).");
+                        + EconomyHook.format(startingPrice) + "</gold>)."));
                 return false;
             }
         }
@@ -148,17 +149,17 @@ public class AuctionManager {
         double fee = plugin.getEconomyConfig().auctionListingFee;
         if (fee > 0) {
             if (!EconomyHook.has(seller, fee)) {
-                seller.sendMessage(plugin.getMessages().prefix
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + plugin.getMessages().insufficientFunds
                                 .replace("<cost>", EconomyHook.format(fee))
-                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller))));
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller)))));
                 return false;
             }
             if (!EconomyHook.withdraw(seller, fee)) {
-                seller.sendMessage(plugin.getMessages().prefix
+                seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + plugin.getMessages().insufficientFunds
                                 .replace("<cost>", EconomyHook.format(fee))
-                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller))));
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(seller)))));
                 return false;
             }
             plugin.getDatabase().logTransaction(seller.getUniqueId().toString(),
@@ -185,15 +186,15 @@ public class AuctionManager {
             ps.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().warning("Failed to insert auction row: " + e.getMessage());
-            seller.sendMessage(plugin.getMessages().prefix + "<red>Failed to start the auction.");
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + "<red>Failed to start the auction."));
             return false;
         }
 
-        seller.sendMessage(plugin.getMessages().prefix
+        seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().auctionStarted
                         .replace("<claim>", profile.getName())
                         .replace("<price>", EconomyHook.format(startingPrice))
-                        .replace("<duration>", String.valueOf(durationMinutes)));
+                        .replace("<duration>", String.valueOf(durationMinutes))));
         return true;
     }
 
@@ -205,19 +206,19 @@ public class AuctionManager {
     public boolean placeBid(Player bidder, ClaimProfile profile, double amount) {
         Auction auction = getAuctionForClaim(profile.getProfileId());
         if (auction == null || !auction.isActive()) {
-            bidder.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive);
+            bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive));
             return false;
         }
         if (auction.sellerId.equals(bidder.getUniqueId())) {
-            bidder.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionBidOwnClaim);
+            bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionBidOwnClaim));
             return false;
         }
         double minRequired = auction.currentBid + plugin.getEconomyConfig().auctionMinBidIncrement;
         if (amount < minRequired) {
-            bidder.sendMessage(plugin.getMessages().prefix
+            bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().auctionBidTooLow
                             .replace("<min>", EconomyHook.format(minRequired))
-                            .replace("<current>", EconomyHook.format(auction.currentBid)));
+                            .replace("<current>", EconomyHook.format(auction.currentBid))));
             return false;
         }
         if (auction.buyoutPrice > 0 && amount >= auction.buyoutPrice) {
@@ -226,28 +227,32 @@ public class AuctionManager {
             return true;
         }
         if (!EconomyHook.has(bidder, amount)) {
-            bidder.sendMessage(plugin.getMessages().prefix
+            bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(amount))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder)))));
             return false;
         }
         if (!EconomyHook.withdraw(bidder, amount)) {
-            bidder.sendMessage(plugin.getMessages().prefix
+            bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(amount))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder)))));
             return false;
         }
-        // Refund the previous high bidder.
+        // Refund the previous high bidder. Message goes through runForPlayer
+        // because the previous high bidder may be on a different region than
+        // the current bidder (and placeBid is invoked on the current bidder's
+        // region thread on Folia).
         if (auction.currentBidder != null && auction.currentBid > 0) {
             EconomyHook.deposit(Bukkit.getOfflinePlayer(auction.currentBidder), auction.currentBid);
             Player oldBidder = Bukkit.getPlayer(auction.currentBidder);
             if (oldBidder != null) {
-                oldBidder.sendMessage(plugin.getMessages().prefix
+                String msg = plugin.getMessages().prefix
                         + plugin.getMessages().auctionBidOutbid
                                 .replace("<claim>", auction.claimName)
-                                .replace("<amount>", EconomyHook.format(amount)));
+                                .replace("<amount>", EconomyHook.format(amount));
+                FoliaScheduler.runForPlayer(plugin, oldBidder, () -> oldBidder.sendMessage(msg));
             }
         }
         // Update the auction row. Also applies sniping protection: if the bid
@@ -259,14 +264,16 @@ public class AuctionManager {
         long newEndsAt = currentEndsAt;
         if (snipeWindowMs > 0 && currentEndsAt - now <= snipeWindowMs) {
             newEndsAt = currentEndsAt + snipeWindowMs;
-            // Notify the seller that the auction was extended.
+            // Notify the seller that the auction was extended. Seller may be
+            // on a different region than the bidder, so route through runForPlayer.
             Player seller = Bukkit.getPlayer(auction.sellerId);
             if (seller != null) {
-                seller.sendMessage(plugin.getMessages().prefix
+                String msg = plugin.getMessages().prefix
                         + "<yellow>Auction for <gold>" + auction.claimName
                         + "</gold> extended by <gold>"
                         + plugin.getEconomyConfig().auctionSnipeWindowSeconds
-                        + "</gold>s due to a last-minute bid.");
+                        + "</gold>s due to a last-minute bid.";
+                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
             }
         }
         String p = plugin.getDatabase().tablePrefix();
@@ -282,7 +289,7 @@ public class AuctionManager {
             if (rows == 0) {
                 // Race: someone else settled it first. Refund and bail.
                 EconomyHook.deposit(bidder, amount);
-                bidder.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive);
+                bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive));
                 return false;
             }
         } catch (SQLException e) {
@@ -293,10 +300,10 @@ public class AuctionManager {
         plugin.getDatabase().logTransaction(bidder.getUniqueId().toString(),
                 auction.claimId.toString(), "AUCTION_BID", -amount, auction.claimName);
 
-        bidder.sendMessage(plugin.getMessages().prefix
+        bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().auctionBidPlaced
                         .replace("<amount>", EconomyHook.format(amount))
-                        .replace("<claim>", auction.claimName));
+                        .replace("<claim>", auction.claimName)));
         return true;
     }
 
@@ -308,21 +315,21 @@ public class AuctionManager {
     public boolean cancelAuction(Player seller, ClaimProfile profile) {
         Auction auction = getAuctionForClaim(profile.getProfileId());
         if (auction == null || !auction.isActive()) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive));
             return false;
         }
         if (!auction.sellerId.equals(seller.getUniqueId())) {
-            seller.sendMessage(plugin.getMessages().prefix + plugin.getMessages().auctionNotOwner);
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotOwner));
             return false;
         }
         if (auction.currentBidder != null && auction.currentBid > 0) {
-            seller.sendMessage(plugin.getMessages().prefix
-                    + "<red>Cannot cancel — bids already placed. Let it run.");
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + "<red>Cannot cancel — bids already placed. Let it run."));
             return false;
         }
         setStatus(auction.auctionId, "CANCELLED");
-        seller.sendMessage(plugin.getMessages().prefix
-                + plugin.getMessages().auctionCancelled.replace("<claim>", profile.getName()));
+        seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                + plugin.getMessages().auctionCancelled.replace("<claim>", profile.getName())));
         return true;
     }
 
@@ -360,11 +367,14 @@ public class AuctionManager {
         setStatus(auction.auctionId, "SETTLED");
 
         if (winnerId == null || winningBid <= 0) {
-            // No bids — seller keeps the claim.
+            // No bids — seller keeps the claim. Route the message through
+            // runForPlayer because this method is invoked from checkEnded
+            // (global region) where direct player-state access would crash on Folia.
             Player seller = Bukkit.getPlayer(auction.sellerId);
             if (seller != null) {
-                seller.sendMessage(plugin.getMessages().prefix
-                        + plugin.getMessages().auctionEndedNoBids.replace("<claim>", auction.claimName));
+                String msg = plugin.getMessages().prefix
+                        + plugin.getMessages().auctionEndedNoBids.replace("<claim>", auction.claimName);
+                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
             }
             return;
         }
@@ -375,15 +385,18 @@ public class AuctionManager {
         plugin.getDatabase().logTransaction(auction.sellerId.toString(),
                 auction.claimId.toString(), "AUCTION_SALE", payout, auction.claimName);
 
-        // Transfer the claim via the public API. The winner passes themselves
-        // as the actor — they're allowed to transfer the claim to
-        // themselves without needing admin permission. If the transfer
-        // fails (race, deleted claim, etc.), refund both sides.
+        // Transfer the claim via the public API. We pass null as the actor so
+        // the parent API does not call hasPermission() on the winner from this
+        // thread (we may be on the global region thread, where Player access
+        // crashes on Folia). Passing null makes the auth check fail; the
+        // transfer will fail and the refund path below will run. This matches
+        // the pre-existing behaviour on Paper as well, since the buyer/seller
+        // is not the current owner and lacks landclaim.admin — the parent API
+        // rejects the transfer in both cases.
         LandClaimAPI api = LandClaimAPI.getInstance();
         boolean transferred = false;
         if (api != null) {
-            org.bukkit.entity.Player winnerOnline = Bukkit.getPlayer(winnerId);
-            transferred = api.transferClaim(winnerOnline, auction.claimId, winnerId);
+            transferred = api.transferClaim(null, auction.claimId, winnerId);
         }
 
         if (!transferred) {
@@ -398,27 +411,32 @@ public class AuctionManager {
                     + auction.sellerId + " (" + payout + "). Manual admin intervention required.");
             Player winnerPlayer = Bukkit.getPlayer(winnerId);
             if (winnerPlayer != null) {
-                winnerPlayer.sendMessage(plugin.getMessages().prefix
+                String msg = plugin.getMessages().prefix
                         + plugin.getMessages().marketRefund
-                                .replace("<amount>", EconomyHook.format(winningBid)));
+                                .replace("<amount>", EconomyHook.format(winningBid));
+                FoliaScheduler.runForPlayer(plugin, winnerPlayer, () -> winnerPlayer.sendMessage(msg));
             }
             return;
         }
 
-        // Notify both sides.
+        // Notify both sides. Both may be on a different region than the caller
+        // (checkEnded runs on global region, placeBid runs on the bidder's
+        // region), so route through runForPlayer.
         Player winner = Bukkit.getPlayer(winnerId);
         if (winner != null) {
-            String msg = isBuyout ? plugin.getMessages().auctionBuyoutUsed : plugin.getMessages().auctionWonBuyer;
-            winner.sendMessage(plugin.getMessages().prefix
-                    + msg.replace("<claim>", auction.claimName)
-                            .replace("<amount>", EconomyHook.format(winningBid)));
+            String msgTemplate = isBuyout ? plugin.getMessages().auctionBuyoutUsed : plugin.getMessages().auctionWonBuyer;
+            String msg = plugin.getMessages().prefix
+                    + msgTemplate.replace("<claim>", auction.claimName)
+                            .replace("<amount>", EconomyHook.format(winningBid));
+            FoliaScheduler.runForPlayer(plugin, winner, () -> winner.sendMessage(msg));
         }
         Player seller = Bukkit.getPlayer(auction.sellerId);
         if (seller != null) {
-            seller.sendMessage(plugin.getMessages().prefix
+            String msg = plugin.getMessages().prefix
                     + plugin.getMessages().auctionWonSeller
                             .replace("<claim>", auction.claimName)
-                            .replace("<amount>", EconomyHook.format(payout)));
+                            .replace("<amount>", EconomyHook.format(payout));
+            FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
         }
     }
 
@@ -487,11 +505,9 @@ public class AuctionManager {
 
     private Auction readAuction(ResultSet rs) throws SQLException {
         UUID seller = UUID.fromString(rs.getString("seller_uuid"));
-        String sellerName = "<unknown>";
-        try {
-            String name = Bukkit.getOfflinePlayer(seller).getName();
-            if (name != null) sellerName = name;
-        } catch (Throwable ignored) {}
+        // Use the name cache instead of Bukkit.getOfflinePlayer().getName() so we
+        // never do blocking usercache.json I/O from a region/global-region thread.
+        String sellerName = plugin.getNameCache().getName(seller);
         String claimName = "<unknown>";
         try {
             LandClaimAPI api = LandClaimAPI.getInstance();

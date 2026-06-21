@@ -2,12 +2,13 @@ package org.ayosynk.landclaimeconomy.managers;
 
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
-import org.bukkit.Bukkit;
+import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
 /**
  * Charges the player when they invite someone as a member or trusted
@@ -50,10 +51,10 @@ public class InviteCostManager implements Listener {
 
         if (!EconomyHook.has(player, cost)) {
             event.setCancelled(true);
-            player.sendMessage(plugin.getMessages().prefix
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(cost))
-                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))));
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
         if (!EconomyHook.withdraw(player, cost)) {
@@ -68,10 +69,10 @@ public class InviteCostManager implements Listener {
                 : plugin.getMessages().trustedInviteCharged;
         final double finalCost = cost;
         final String finalKind = kind;
-        Bukkit.getScheduler().runTask(plugin, () -> player.sendMessage(plugin.getMessages().prefix
+        FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + messageKey
                         .replace("<cost>", EconomyHook.format(finalCost))
                         .replace("<player>", targetName)
-                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));
     }
 }
