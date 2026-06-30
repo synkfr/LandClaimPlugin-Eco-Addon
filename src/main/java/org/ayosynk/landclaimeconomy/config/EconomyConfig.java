@@ -63,6 +63,19 @@ public class EconomyConfig extends OkaeriConfig {
     @Comment("Cost per trusted player invite.")
     public double trustedInviteCost = 10.0;
 
+    // ========== Buy limits costs ==========
+    @Comment("Cost to buy an additional chunk/claim block.")
+    public double claimBlockCost = 50.0;
+
+    @Comment("Cost to buy an additional custom role slot.")
+    public double roleSlotCost = 150.0;
+
+    @Comment("Cost to buy an additional claim member slot.")
+    public double memberSlotCost = 50.0;
+
+    @Comment("Cost to buy an additional claim warp slot.")
+    public double warpSlotCost = 75.0;
+
     // ========== Daily tax ==========
 
     @Comment("Daily per-chunk upkeep tax. Unpaid chunks are auto-unclaimed after the grace period.")
