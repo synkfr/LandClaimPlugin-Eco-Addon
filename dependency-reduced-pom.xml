@@ -4,7 +4,7 @@
   <groupId>com.github.synkfr</groupId>
   <artifactId>LandClaimPlugin-Economy</artifactId>
   <name>LandClaimPlugin-Economy</name>
-  <version>1.0.0</version>
+  <version>3.1.0</version>
   <description>Economy addon for LandClaimPlugin — claim/warp/invite costs, daily tax, claim marketplace. Requires Vault.</description>
   <build>
     <defaultGoal>clean package</defaultGoal>
@@ -19,8 +19,7 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.13.0</version>
         <configuration>
-          <source>${java.version}</source>
-          <target>${java.version}</target>
+          <release>${java.version}</release>
         </configuration>
       </plugin>
       <plugin>
@@ -81,13 +80,13 @@
     <dependency>
       <groupId>com.github.synkfr</groupId>
       <artifactId>LandClaimPlugin</artifactId>
-      <version>2.5.0</version>
+      <version>3.1.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>io.papermc.paper</groupId>
       <artifactId>paper-api</artifactId>
-      <version>1.21.4-R0.1-SNAPSHOT</version>
+      <version>26.2.build.120-stable</version>
       <scope>provided</scope>
       <exclusions>
         <exclusion>
@@ -108,8 +107,8 @@
     </dependency>
   </dependencies>
   <properties>
-    <landclaim.version>2.5.0</landclaim.version>
-    <java.version>21</java.version>
+    <landclaim.version>3.1.0</landclaim.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <java.version>21</java.version>
   </properties>
 </project>

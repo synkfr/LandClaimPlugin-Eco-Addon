@@ -84,7 +84,7 @@ public final class ProfilePickerGUI {
 
             List<GuiItem> items = new ArrayList<>(actionable.size());
             for (ClaimProfile p : actionable) {
-                items.add(buildItem(plugin, p, viewerId, onPicked));
+                items.add(buildItem(plugin, p, onPicked));
             }
 
             String[] structure = {
@@ -119,7 +119,7 @@ public final class ProfilePickerGUI {
     }
 
     private static GuiItem buildItem(LandClaimEconomy plugin, ClaimProfile p,
-                                     java.util.UUID viewerId, Consumer<ClaimProfile> onPicked) {
+                                     Consumer<ClaimProfile> onPicked) {
         return new GuiItem() {
             @Override
             public ItemStack render(Player viewer) {

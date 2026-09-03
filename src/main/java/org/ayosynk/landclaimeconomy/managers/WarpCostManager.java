@@ -1,24 +1,15 @@
 package org.ayosynk.landclaimeconomy.managers;
 
+import org.ayosynk.landClaimPlugin.api.event.WarpCreateEvent;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
 import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
-/**
- * Charges the player when they run {@code /claim setwarp <name> [public]}.
- *
- * <p>The parent plugin doesn't fire a custom event for warp creation, so
- * we hook Bukkit's {@link PlayerCommandPreprocessEvent} and cancel
- * the command if the player can't afford the cost. The tax refund on
- * warp deletion is the inverse — handled by intercepting
- * {@code /claim delwarp}.</p>
- */
 public class WarpCostManager implements Listener {
 
     private final LandClaimEconomy plugin;
@@ -27,26 +18,20 @@ public class WarpCostManager implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onCommand(PlayerCommandPreprocessEvent event) {
-        if (!plugin.getEconomyConfig().enabled
-                || !plugin.getEconomyConfig().warpCost.enabled) return;
-
-        String msg = event.getMessage();
-        String[] parts = msg.split(" ");
-        if (parts.length < 3) return;
-        // Match "/claim setwarp <name>" or "/claim setwarp <name> public|private"
-        if (!parts[0].equalsIgnoreCase("/claim")
-                && !parts[0].equalsIgnoreCase("/c")) return;
-        if (!parts[1].equalsIgnoreCase("setwarp")) return;
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWarpCreate(WarpCreateEvent event) {
+        if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().warpCost.enabled) {
+            return;
+        }
 
         Player player = event.getPlayer();
-        if (player.hasPermission("landclaimeconomy.bypass")) return;
-        if (player.hasPermission("landclaim.admin")) return;
+        if (player == null) return;
+        if (player.hasPermission("landclaimeconomy.bypass") || player.hasPermission("landclaim.admin")) {
+            return;
+        }
 
         double cost = plugin.getEconomyConfig().warpCostAmount;
-        // Apply public-warp multiplier if the optional visibility arg is "public".
-        if (parts.length >= 4 && parts[3].equalsIgnoreCase("public")) {
+        if (event.getWarp().isPublic()) {
             cost *= plugin.getEconomyConfig().publicWarpMultiplier;
         }
         if (cost <= 0) return;
@@ -59,20 +44,74 @@ public class WarpCostManager implements Listener {
                             .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
+
         if (!EconomyHook.withdraw(player, cost)) {
             event.setCancelled(true);
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().insufficientFunds
+                            .replace("<cost>", EconomyHook.format(cost))
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
-        final String name = parts[2];
+
+        final String name = event.getWarp().getName();
         final double finalCost = cost;
         plugin.getDatabase().logTransaction(player.getUniqueId().toString(),
-                null, "WARP_COST", finalCost, name);
-        // Defer the success message to next tick so the parent's
-        // "warp set" message lands first and we don't race the chat order.
+                event.getProfile().getProfileId().toString(), "WARP_COST", finalCost, name);
+
         FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                 + plugin.getMessages().warpCharged
                         .replace("<cost>", EconomyHook.format(finalCost))
                         .replace("<name>", name)
                         .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onWarpPrivacyChange(org.ayosynk.landClaimPlugin.api.event.WarpPrivacyChangeEvent event) {
+        if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().warpCost.enabled) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (player == null) return;
+        if (player.hasPermission("landclaimeconomy.bypass") || player.hasPermission("landclaim.admin")) {
+            return;
+        }
+
+        if (event.isNewIsPublic()) {
+            double multiplier = plugin.getEconomyConfig().publicWarpMultiplier;
+            if (multiplier <= 1.0) return;
+            double extraCost = plugin.getEconomyConfig().warpCostAmount * (multiplier - 1.0);
+            if (extraCost <= 0) return;
+
+            if (!EconomyHook.has(player, extraCost)) {
+                event.setCancelled(true);
+                player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().insufficientFunds
+                                .replace("<cost>", EconomyHook.format(extraCost))
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+                return;
+            }
+
+            if (!EconomyHook.withdraw(player, extraCost)) {
+                event.setCancelled(true);
+                player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().insufficientFunds
+                                .replace("<cost>", EconomyHook.format(extraCost))
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+                return;
+            }
+
+            final String name = event.getWarp().getName();
+            final double finalCost = extraCost;
+            plugin.getDatabase().logTransaction(player.getUniqueId().toString(),
+                    event.getProfile().getProfileId().toString(), "WARP_PUBLIC_UPGRADE", finalCost, name);
+
+            FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().warpCharged
+                            .replace("<cost>", EconomyHook.format(finalCost))
+                            .replace("<name>", name)
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));
+        }
     }
 }

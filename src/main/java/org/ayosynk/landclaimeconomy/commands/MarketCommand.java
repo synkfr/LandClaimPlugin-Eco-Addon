@@ -78,18 +78,66 @@ public class MarketCommand implements TabCompleter, Listener {
                     + "<red>You don't have permission to use the market."));
             return true;
         }
+
+        var cfg = plugin.getEconomyConfig();
+        if (!cfg.enabled || (!cfg.market.enabled && !cfg.auction.enabled)) {
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().featureDisabled));
+            return true;
+        }
+
         if (args.length == 0) {
-            MarketplaceGUI.open(player, plugin);
+            if (cfg.market.enabled) {
+                MarketplaceGUI.open(player, plugin);
+            } else {
+                AuctionGUI.open(player, plugin);
+            }
             return true;
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
-            case "list" -> MarketplaceGUI.open(player, plugin, 0, false);
-            case "mine" -> MarketplaceGUI.open(player, plugin, 0, true);
-            case "sell" -> startSellFlow(player);
-            case "unlist" -> handleUnlist(player, args);
-            case "buy" -> handleBuy(player, args);
-            case "auction" -> handleAuction(player, args);
+            case "list" -> {
+                if (!cfg.market.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                MarketplaceGUI.open(player, plugin, 0, false);
+            }
+            case "mine" -> {
+                if (!cfg.market.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                MarketplaceGUI.open(player, plugin, 0, true);
+            }
+            case "sell" -> {
+                if (!cfg.market.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                startSellFlow(player);
+            }
+            case "unlist" -> {
+                if (!cfg.market.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                handleUnlist(player, args);
+            }
+            case "buy" -> {
+                if (!cfg.market.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                handleBuy(player, args);
+            }
+            case "auction" -> {
+                if (!cfg.auction.enabled) {
+                    player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().featureDisabled));
+                    return true;
+                }
+                handleAuction(player, args);
+            }
             default -> sendHelp(player);
         }
         return true;
@@ -100,9 +148,8 @@ public class MarketCommand implements TabCompleter, Listener {
     private void startSellFlow(Player player) {
         ProfilePickerGUI.open(player, plugin, plugin.getMessages().pickerTitleSell,
                 profile -> {
-                    // Already on the player's region thread.
                     pendingFlows.put(player.getUniqueId(),
-                            new PendingFlow(profile, PendingFlow.Kind.SELL, plugin));
+                            new PendingFlow(profile, PendingFlow.Kind.SELL));
                     player.sendMessage(MessagesConfig.formatRaw(
                             plugin.getMessages().prefix + plugin.getMessages().pricePrompt));
                 });
@@ -130,7 +177,7 @@ public class MarketCommand implements TabCompleter, Listener {
     private void startAuctionFlow(Player player) {
         ProfilePickerGUI.open(player, plugin, plugin.getMessages().pickerTitleAuction,
                 profile -> {
-                    PendingFlow flow = new PendingFlow(profile, PendingFlow.Kind.AUCTION_START, plugin);
+                    PendingFlow flow = new PendingFlow(profile, PendingFlow.Kind.AUCTION_START);
                     pendingFlows.put(player.getUniqueId(), flow);
                     player.sendMessage(MessagesConfig.formatRaw(
                             plugin.getMessages().prefix + plugin.getMessages().auctionPromptPrice));
@@ -169,16 +216,26 @@ public class MarketCommand implements TabCompleter, Listener {
             // where clicking the item invokes cancelAuction. To keep the work
             // small we delegate to a minimal direct flow.
             FoliaScheduler.runForPlayer(plugin, player, () -> {
-                // Inline cancel flow: list the claim names and let the user
-                // type the name in chat. Avoids another full GUI build.
                 player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                         + "<yellow>Your active auctions: <gold>"
                         + String.join("<gray>, <gold>",
                                 mine.stream().map(a -> a.claimName).toArray(String[]::new))));
                 pendingFlows.put(player.getUniqueId(),
-                        new PendingFlow(null, PendingFlow.Kind.AUCTION_CANCEL, plugin));
+                        new PendingFlow(null, PendingFlow.Kind.AUCTION_CANCEL));
             });
         });
+    }
+
+    public void startBidFlow(Player player, ClaimProfile profile, double minBid, double buyoutPrice) {
+        pendingFlows.put(player.getUniqueId(), new PendingFlow(profile, PendingFlow.Kind.AUCTION_BID));
+        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                + "<yellow>Type your bid amount in chat. Min bid: "
+                + org.ayosynk.landclaimeconomy.util.EconomyHook.format(minBid)
+                + (buyoutPrice > 0
+                        ? " <dark_gray>(or "
+                                + org.ayosynk.landclaimeconomy.util.EconomyHook.format(buyoutPrice)
+                                + " to buyout)"
+                        : "")));
     }
 
     // ========== Text-based subcommands (power-user shortcuts, with tab completion) ==========
@@ -264,7 +321,20 @@ public class MarketCommand implements TabCompleter, Listener {
             case SELL -> handleSellStep(player, flow, msg);
             case AUCTION_START -> handleAuctionStep(player, flow, msg);
             case AUCTION_CANCEL -> handleAuctionCancelStep(player, flow, msg);
+            case AUCTION_BID -> handleAuctionBidStep(player, flow, msg);
         }
+    }
+
+    private void handleAuctionBidStep(Player player, PendingFlow flow, String msg) {
+        double amount;
+        try {
+            amount = Double.parseDouble(msg);
+        } catch (NumberFormatException e) {
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().invalidNumber));
+            return;
+        }
+        pendingFlows.remove(player.getUniqueId());
+        auctions.placeBid(player, flow.profile, amount);
     }
 
     private void handleSellStep(Player player, PendingFlow flow, String msg) {
@@ -468,19 +538,17 @@ public class MarketCommand implements TabCompleter, Listener {
                 + "<gray>/claimmarket auction cancel <dark_gray>— <yellow>cancel one of your active auctions"));
     }
 
-    /** Per-player state machine for the multi-step flows (sell, auction start, auction cancel). */
     private static final class PendingFlow {
-        enum Kind { SELL, AUCTION_START, AUCTION_CANCEL }
+        enum Kind { SELL, AUCTION_START, AUCTION_CANCEL, AUCTION_BID }
 
-        final ClaimProfile profile; // null for AUCTION_CANCEL (resolved in the cancel step)
+        final ClaimProfile profile;
         final Kind kind;
-        // Auction-start state machine:
-        int auctionStep = 0;          // 0 = awaiting starting price, 1 = awaiting duration, 2 = awaiting buyout
+        int auctionStep = 0;
         double startingPrice;
         long durationMinutes;
         double buyoutPrice;
 
-        PendingFlow(ClaimProfile profile, Kind kind, LandClaimEconomy plugin) {
+        PendingFlow(ClaimProfile profile, Kind kind) {
             this.profile = profile;
             this.kind = kind;
         }

@@ -86,12 +86,11 @@ public class AuctionGUI {
                         return item;
                     }
 
-                    @Override
-                    public ClickAction clickAction() {
+                                     public ClickAction clickAction() {
                         return (p, e) -> {
                             if (e.isRightClick() && a.sellerId.equals(p.getUniqueId())) {
                                 p.closeInventory();
-                                ClaimProfile profile = lookupProfile(plugin, a.claimId);
+                                ClaimProfile profile = lookupProfile(a.claimId);
                                 if (profile != null) {
                                     FoliaScheduler.runForPlayer(plugin, p,
                                             () -> mgr.cancelAuction(p, profile));
@@ -100,17 +99,12 @@ public class AuctionGUI {
                             }
                             if (e.isLeftClick()) {
                                 p.closeInventory();
-                                p.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
-                                        + "<yellow>Type your bid amount in chat. Min bid: "
-                                        + EconomyHook.format(a.currentBid
-                                                + plugin.getEconomyConfig().auctionMinBidIncrement)
-                                        + (a.buyoutPrice > 0
-                                                ? " <dark_gray>(or "
-                                                        + EconomyHook.format(a.buyoutPrice)
-                                                        + " to buyout)"
-                                                : "")));
-                                // Listen for the next chat message.
-                                registerBidChatListener(p, plugin, a.claimId);
+                                ClaimProfile profile = lookupProfile(a.claimId);
+                                if (profile != null) {
+                                    plugin.getMarketCommand().startBidFlow(p, profile,
+                                            a.currentBid + plugin.getEconomyConfig().auctionMinBidIncrement,
+                                            a.buyoutPrice);
+                                }
                             }
                         };
                     }
@@ -144,40 +138,7 @@ public class AuctionGUI {
         });
     }
 
-    private static void registerBidChatListener(Player player, LandClaimEconomy plugin,
-                                                 UUID claimId) {
-        class ChatListener implements org.bukkit.event.Listener {
-            @org.bukkit.event.EventHandler
-            public void onChat(org.bukkit.event.player.AsyncPlayerChatEvent ev) {
-                if (!ev.getPlayer().getUniqueId().equals(player.getUniqueId())) return;
-                ev.setCancelled(true);
-                FoliaScheduler.runForPlayer(plugin, player, () -> {
-                    org.bukkit.event.HandlerList.unregisterAll(this);
-                    double amount;
-                    try {
-                        amount = Double.parseDouble(ev.getMessage().trim());
-                    } catch (NumberFormatException nfe) {
-                        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + "<red>Invalid number. Bid cancelled."));
-                        return;
-                    }
-                    ClaimProfile profile = lookupProfile(plugin, claimId);
-                    if (profile == null) {
-                        player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
-                                + plugin.getMessages().auctionClaimNotFound));
-                        return;
-                    }
-                    plugin.getAuctionManager().placeBid(player, profile, amount);
-                });
-            }
-        }
-        ChatListener listener = new ChatListener();
-        org.bukkit.Bukkit.getPluginManager().registerEvents(listener, plugin);
-        // Auto-expire after 30 seconds so we don't leak listeners.
-        FoliaScheduler.runForPlayerLater(plugin, player,
-                () -> org.bukkit.event.HandlerList.unregisterAll(listener), 30L * 20L);
-    }
-
-    private static ClaimProfile lookupProfile(LandClaimEconomy plugin, UUID claimId) {
+    private static ClaimProfile lookupProfile(UUID claimId) {
         LandClaimAPI api = LandClaimAPI.getInstance();
         return api != null ? api.getClaimById(claimId) : null;
     }

@@ -6,7 +6,7 @@
 
     <groupId>com.github.synkfr</groupId>
     <artifactId>LandClaimPlugin-Economy</artifactId>
-    <version>1.0.0</version>
+    <version>3.1.0</version>
     <packaging>jar</packaging>
 
     <name>LandClaimPlugin-Economy</name>
@@ -15,7 +15,7 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <landclaim.version>2.5.0</landclaim.version>
+        <landclaim.version>3.1.0</landclaim.version>
     </properties>
 
     <repositories>
@@ -53,7 +53,7 @@
         <dependency>
             <groupId>io.papermc.paper</groupId>
             <artifactId>paper-api</artifactId>
-            <version>1.21.4-R0.1-SNAPSHOT</version>
+            <version>26.2.build.120-stable</version>
             <scope>provided</scope>
             <exclusions>
                 <exclusion>
@@ -103,8 +103,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${java.version}</release>
                 </configuration>
             </plugin>
             <plugin>

@@ -81,6 +81,12 @@ public class MarketManager {
                             .replace("<claim>", profile.getName())));
             return false;
         }
+        if (plugin.getAuctionManager() != null && plugin.getAuctionManager().getAuctionForClaim(profile.getProfileId()) != null) {
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().auctionAlreadyOnAuction
+                            .replace("<claim>", profile.getName())));
+            return false;
+        }
         if (!profile.isOwner(seller.getUniqueId())) {
             seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().notOwner));
             return false;
@@ -177,7 +183,25 @@ public class MarketManager {
                             .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(buyer)))));
             return false;
         }
+
+        String p = plugin.getDatabase().tablePrefix();
+        try (Connection conn = plugin.getDatabase().getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "DELETE FROM " + p + "market_listings WHERE claim_profile_id = ?")) {
+            ps.setString(1, profile.getProfileId().toString());
+            if (ps.executeUpdate() == 0) {
+                buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().marketNotListed
+                                .replace("<claim>", profile.getName())));
+                return false;
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Failed to remove listing during purchase: " + e.getMessage());
+            return false;
+        }
+
         if (!EconomyHook.withdraw(buyer, listing.price)) {
+            reinsertListing(listing);
             buyer.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().insufficientFunds
                             .replace("<cost>", EconomyHook.format(listing.price))
@@ -201,26 +225,18 @@ public class MarketManager {
         plugin.getDatabase().logTransaction(buyer.getUniqueId().toString(),
                 profile.getProfileId().toString(), "MARKET_PURCHASE", -listing.price, profile.getName());
 
-        // Transfer ownership via the public API. The claim profile is
-        // either re-keyed (if buyer has no profile) or merged into
-        // the buyer's existing profile (so they keep their own claim).
-        // The buyer passes themselves as the actor — they're allowed to
-        // transfer a claim to themselves without needing admin.
         LandClaimAPI api = LandClaimAPI.getInstance();
         boolean transferred = false;
         if (api != null) {
-            transferred = api.transferClaim(buyer, profile.getProfileId(), buyer.getUniqueId());
+            transferred = api.transferClaim(profile.getProfileId(), buyer.getUniqueId());
         }
 
-        deleteListing(profile.getProfileId());
-
         if (!transferred) {
-            // Refund the buyer — money was already withdrawn and the
-            // seller was already paid out. Roll back both sides.
             EconomyHook.deposit(buyer, listing.price);
             if (sellerPayout > 0) {
                 EconomyHook.withdraw(seller, sellerPayout);
             }
+            reinsertListing(listing);
             plugin.getDatabase().logTransaction(buyer.getUniqueId().toString(),
                     profile.getProfileId().toString(), "MARKET_REFUND", listing.price, profile.getName());
             plugin.getLogger().warning("Claim transfer failed for profileId " + profile.getProfileId()
@@ -237,9 +253,6 @@ public class MarketManager {
                         .replace("<claim>", profile.getName())
                         .replace("<price>", EconomyHook.format(listing.price))
                         .replace("<seller>", listing.ownerName)));
-        // Seller is on a different region from the buyer on Folia. Route the
-        // notification through runForPlayer instead of touching their Player
-        // object directly.
         if (seller.isOnline() && seller.getPlayer() != null) {
             Player sellerOnline = seller.getPlayer();
             String msg = plugin.getMessages().prefix
@@ -248,7 +261,7 @@ public class MarketManager {
                             .replace("<buyer>", buyer.getName())
                             .replace("<price>", EconomyHook.format(sellerPayout));
             org.ayosynk.landclaimeconomy.util.FoliaScheduler.runForPlayer(plugin, sellerOnline,
-                    () -> sellerOnline.sendMessage(msg));
+                    () -> sellerOnline.sendMessage(MessagesConfig.formatRaw(msg)));
         }
         return true;
     }
@@ -320,6 +333,27 @@ public class MarketManager {
             ps.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().warning("Failed to delete listing: " + e.getMessage());
+        }
+    }
+
+    public boolean deleteListingBySystem(UUID claimId) {
+        if (!isListed(claimId)) return false;
+        deleteListing(claimId);
+        return true;
+    }
+
+    private void reinsertListing(Listing listing) {
+        String p = plugin.getDatabase().tablePrefix();
+        try (Connection conn = plugin.getDatabase().getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                     "REPLACE INTO " + p + "market_listings (claim_profile_id, owner_uuid, price, listed_at) VALUES (?, ?, ?, ?)")) {
+            ps.setString(1, listing.claimId.toString());
+            ps.setString(2, listing.ownerId.toString());
+            ps.setDouble(3, listing.price);
+            ps.setLong(4, listing.listedAt);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            plugin.getLogger().warning("Failed to restore listing: " + e.getMessage());
         }
     }
 }

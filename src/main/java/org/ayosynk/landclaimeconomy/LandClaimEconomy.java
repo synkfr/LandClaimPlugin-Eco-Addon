@@ -38,10 +38,10 @@ public class LandClaimEconomy extends JavaPlugin {
     private MarketManager marketManager;
     private AuctionManager auctionManager;
     private MarketCommand marketCommand;
+    private org.ayosynk.landclaimeconomy.commands.TaxCommand taxCommand;
 
     @Override
     public void onEnable() {
-        // Soft-depend: if either parent is missing, disable cleanly.
         if (Bukkit.getPluginManager().getPlugin("LandClaimPlugin") == null) {
             getLogger().warning("LandClaimPlugin is not installed — disabling.");
             Bukkit.getPluginManager().disablePlugin(this);
@@ -53,7 +53,6 @@ public class LandClaimEconomy extends JavaPlugin {
             return;
         }
 
-        // Load configs.
         this.economyConfig = ConfigManager.create(EconomyConfig.class, (it) -> {
             it.withConfigurer(new YamlBukkitConfigurer(), new SerdesBukkit());
             it.withBindFile(new File(getDataFolder(), "config.yml"));
@@ -67,7 +66,6 @@ public class LandClaimEconomy extends JavaPlugin {
             it.load(true);
         });
 
-        // Wire the database.
         var parent = LandClaimPlugin.getInstance();
         if (parent == null) {
             getLogger().warning("LandClaimPlugin instance is null — disabling.");
@@ -77,12 +75,9 @@ public class LandClaimEconomy extends JavaPlugin {
         this.database = new EconomyDatabase(this, parent.getDatabaseManager());
         this.database.createTables();
 
-        // Name cache. Registers a listener for AsyncPlayerPreLoginEvent so we never
-        // have to do blocking usercache.json I/O from a region/global-region thread.
         this.nameCache = new PlayerNameCache(this);
         this.nameCache.register();
 
-        // Managers.
         this.claimCostManager = new ClaimCostManager(this);
         this.warpCostManager = new WarpCostManager(this);
         this.inviteCostManager = new InviteCostManager(this);
@@ -90,26 +85,28 @@ public class LandClaimEconomy extends JavaPlugin {
         this.marketManager = new MarketManager(this);
         this.auctionManager = new AuctionManager(this);
         this.marketCommand = new MarketCommand(this, marketManager, auctionManager);
+        this.taxCommand = new org.ayosynk.landclaimeconomy.commands.TaxCommand(this);
 
-        // Listeners.
         var server = Bukkit.getPluginManager();
         server.registerEvents(claimCostManager, this);
         server.registerEvents(warpCostManager, this);
         server.registerEvents(inviteCostManager, this);
+        server.registerEvents(new org.ayosynk.landclaimeconomy.listeners.ClaimCleanupListener(this), this);
 
-        // Tab completer. We register it against the primary alias only —
-        // Bukkit propagates it to the aliases automatically. The command
-        // dispatcher in onCommand() below handles all three aliases.
         var claimMarketCmd = getCommand("claimmarket");
         if (claimMarketCmd != null) {
             claimMarketCmd.setTabCompleter(marketCommand);
         }
 
-        // Tax scheduler.
+        var claimTaxCmd = getCommand("claimtax");
+        if (claimTaxCmd != null) {
+            claimTaxCmd.setExecutor(taxCommand);
+            claimTaxCmd.setTabCompleter(taxCommand);
+        }
+
         if (economyConfig.enabled && economyConfig.tax.enabled) {
             taxManager.start();
         }
-        // Auction scheduler.
         if (economyConfig.enabled && economyConfig.auction.enabled) {
             auctionManager.start();
         }
@@ -137,6 +134,9 @@ public class LandClaimEconomy extends JavaPlugin {
                 || command.getName().equalsIgnoreCase("claimbazaar")) {
             return marketCommand.handle(sender, args);
         }
+        if (command.getName().equalsIgnoreCase("claimtax")) {
+            return taxCommand.onCommand(sender, command, label, args);
+        }
         return false;
     }
 
@@ -160,11 +160,19 @@ public class LandClaimEconomy extends JavaPlugin {
         return nameCache;
     }
 
+    public TaxManager getTaxManager() {
+        return taxManager;
+    }
+
     public MarketManager getMarketManager() {
         return marketManager;
     }
 
     public AuctionManager getAuctionManager() {
         return auctionManager;
+    }
+
+    public MarketCommand getMarketCommand() {
+        return marketCommand;
     }
 }

@@ -59,25 +59,35 @@ public class ClaimCostManager implements Listener {
         UUID pid = player.getUniqueId();
         LandClaimAPI api = LandClaimAPI.getInstance();
 
-        // Determine cost based on whether this is the player's first-ever
-        // claim (one free if configured) and whether this is the first
-        // chunk of a new claim vs an expansion.
         double cost;
-        if (cfg.firstClaimFree && !firstClaimDone.contains(pid)
-                && api.getTotalChunksByOwner(pid) == 0) {
-            // Their first chunk ever is free.
+        int totalOwnedChunks = api != null ? api.getTotalChunksByOwner(pid) : 0;
+        if (cfg.firstClaimFree && !firstClaimDone.contains(pid) && totalOwnedChunks == 0) {
             firstClaimDone.add(pid);
             player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
                     + plugin.getMessages().claimFirstFree));
             return;
         }
 
-        // Is this an expansion of an existing claim? We treat the first
-        // chunk of a new claim as "firstChunkCost" and additional chunks
-        // of the same claim as "perChunkCost".
-        boolean isFirstChunkOfNewClaim = !api.canCreateClaim(pid);
-        cost = isFirstChunkOfNewClaim ? cfg.firstChunkCost : cfg.perChunkCost;
-        if (cost <= 0) return; // free
+        switch (cfg.claimCostMode) {
+            case DOUBLED -> {
+                cost = cfg.baseCost * Math.pow(2.0, totalOwnedChunks);
+                if (cfg.maxChunkCost > 0 && cost > cfg.maxChunkCost) {
+                    cost = cfg.maxChunkCost;
+                }
+            }
+            case PERCENTAGE -> {
+                cost = cfg.baseCost * Math.pow(1.0 + (cfg.percentageIncrease / 100.0), totalOwnedChunks);
+                if (cfg.maxChunkCost > 0 && cost > cfg.maxChunkCost) {
+                    cost = cfg.maxChunkCost;
+                }
+            }
+            case FIXED -> {
+                boolean isFirstChunkOfNewClaim = event.getProfile() == null || event.getProfile().getOwnedChunks().isEmpty();
+                cost = isFirstChunkOfNewClaim ? cfg.firstChunkCost : cfg.perChunkCost;
+            }
+            default -> cost = cfg.perChunkCost;
+        }
+        if (cost <= 0) return;
 
         // Apply the daily cap.
         cost = applyDailyCap(pid, cost, cfg.dailyChargeCap);

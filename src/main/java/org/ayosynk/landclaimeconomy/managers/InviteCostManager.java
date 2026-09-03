@@ -1,20 +1,16 @@
 package org.ayosynk.landclaimeconomy.managers;
 
+import org.ayosynk.landClaimPlugin.api.event.ClaimMemberAddEvent;
+import org.ayosynk.landClaimPlugin.api.event.ClaimTrustAddEvent;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
 import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
-import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 
-/**
- * Charges the player when they invite someone as a member or trusted
- * player. Hooks Bukkit's PlayerCommandPreprocessEvent since the parent
- * doesn't fire a custom event for invite actions.
- */
 public class InviteCostManager implements Listener {
 
     private final LandClaimEconomy plugin;
@@ -23,30 +19,19 @@ public class InviteCostManager implements Listener {
         this.plugin = plugin;
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onCommand(PlayerCommandPreprocessEvent event) {
-        if (!plugin.getEconomyConfig().enabled
-                || !plugin.getEconomyConfig().inviteCost.enabled) return;
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onMemberInvite(ClaimMemberAddEvent event) {
+        if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().inviteCost.enabled) {
+            return;
+        }
 
-        String msg = event.getMessage();
-        String[] parts = msg.split(" ");
-        if (parts.length < 4) return;
-        if (!parts[0].equalsIgnoreCase("/claim")
-                && !parts[0].equalsIgnoreCase("/c")) return;
+        Player player = event.getInviter();
+        if (player == null) return;
+        if (player.hasPermission("landclaimeconomy.bypass") || player.hasPermission("landclaim.admin")) {
+            return;
+        }
 
-        String sub = parts[1].toLowerCase();
-        String kind = null;
-        if (sub.equals("member") && parts[2].equalsIgnoreCase("invite")) kind = "MEMBER";
-        else if (sub.equals("trust") && parts[2].equalsIgnoreCase("invite")) kind = "TRUSTED";
-        if (kind == null) return;
-
-        Player player = event.getPlayer();
-        if (player.hasPermission("landclaimeconomy.bypass")) return;
-        if (player.hasPermission("landclaim.admin")) return;
-
-        double cost = "MEMBER".equals(kind)
-                ? plugin.getEconomyConfig().memberInviteCost
-                : plugin.getEconomyConfig().trustedInviteCost;
+        double cost = plugin.getEconomyConfig().memberInviteCost;
         if (cost <= 0) return;
 
         if (!EconomyHook.has(player, cost)) {
@@ -57,20 +42,68 @@ public class InviteCostManager implements Listener {
                             .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
+
         if (!EconomyHook.withdraw(player, cost)) {
             event.setCancelled(true);
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().insufficientFunds
+                            .replace("<cost>", EconomyHook.format(cost))
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
             return;
         }
-        String targetName = parts[3];
+
+        String targetName = plugin.getNameCache().getName(event.getMemberId());
         plugin.getDatabase().logTransaction(player.getUniqueId().toString(),
-                null, kind + "_INVITE", cost, targetName);
-        String messageKey = "MEMBER".equals(kind)
-                ? plugin.getMessages().memberInviteCharged
-                : plugin.getMessages().trustedInviteCharged;
+                event.getProfile().getProfileId().toString(), "MEMBER_INVITE", cost, targetName);
+
         final double finalCost = cost;
-        final String finalKind = kind;
         FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
-                + messageKey
+                + plugin.getMessages().memberInviteCharged
+                        .replace("<cost>", EconomyHook.format(finalCost))
+                        .replace("<player>", targetName)
+                        .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onTrustInvite(ClaimTrustAddEvent event) {
+        if (!plugin.getEconomyConfig().enabled || !plugin.getEconomyConfig().inviteCost.enabled) {
+            return;
+        }
+
+        Player player = event.getInviter();
+        if (player == null) return;
+        if (player.hasPermission("landclaimeconomy.bypass") || player.hasPermission("landclaim.admin")) {
+            return;
+        }
+
+        double cost = plugin.getEconomyConfig().trustedInviteCost;
+        if (cost <= 0) return;
+
+        if (!EconomyHook.has(player, cost)) {
+            event.setCancelled(true);
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().insufficientFunds
+                            .replace("<cost>", EconomyHook.format(cost))
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+            return;
+        }
+
+        if (!EconomyHook.withdraw(player, cost)) {
+            event.setCancelled(true);
+            player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().insufficientFunds
+                            .replace("<cost>", EconomyHook.format(cost))
+                            .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player)))));
+            return;
+        }
+
+        String targetName = plugin.getNameCache().getName(event.getTargetId());
+        plugin.getDatabase().logTransaction(player.getUniqueId().toString(),
+                event.getProfile().getProfileId().toString(), "TRUSTED_INVITE", cost, targetName);
+
+        final double finalCost = cost;
+        FoliaScheduler.runForPlayer(plugin, player, () -> player.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                + plugin.getMessages().trustedInviteCharged
                         .replace("<cost>", EconomyHook.format(finalCost))
                         .replace("<player>", targetName)
                         .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(player))))));

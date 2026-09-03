@@ -3,6 +3,7 @@ package org.ayosynk.landclaimeconomy.managers;
 import org.ayosynk.landClaimPlugin.api.LandClaimAPI;
 import org.ayosynk.landClaimPlugin.models.ClaimProfile;
 import org.ayosynk.landclaimeconomy.LandClaimEconomy;
+import org.ayosynk.landclaimeconomy.config.MessagesConfig;
 import org.ayosynk.landclaimeconomy.util.EconomyHook;
 import org.ayosynk.landclaimeconomy.util.FoliaScheduler;
 import org.bukkit.Bukkit;
@@ -35,11 +36,6 @@ public class TaxManager {
     private final LandClaimEconomy plugin;
     private FoliaScheduler.ScheduledHandle task;
 
-    // A claim is "tax-locked" if it has been auto-unclaimed this tick —
-    // we cache the profile id to skip it on the rest of the iteration
-    // and to avoid double-charging the same claim twice in one tick.
-    private final java.util.Set<UUID> autoUnclaimInProgress = new java.util.HashSet<>();
-
     public TaxManager(LandClaimEconomy plugin) {
         this.plugin = plugin;
     }
@@ -57,22 +53,14 @@ public class TaxManager {
         }
     }
 
-    /**
-     * Run one tax tick. Each tick advances the wall-clock by
-     * {@code taxIntervalMinutes} minutes of game time.
-     */
     void tick() {
         if (!plugin.getEconomyConfig().enabled
                 || !plugin.getEconomyConfig().tax.enabled) return;
         if (!EconomyHook.isAvailable()) return;
 
-        autoUnclaimInProgress.clear();
         long now = System.currentTimeMillis();
         long dayMs = TimeUnit.DAYS.toMillis(1);
 
-        // Walk every claim on the server. As of 2.5.0 the parent's public
-        // API exposes getAllClaimProfiles() so we no longer need the
-        // knownClaims hack from earlier builds.
         for (ClaimProfile profile : new java.util.ArrayList<>(
                 plugin.getParentAPI().getAllClaimProfiles())) {
             try {
@@ -81,15 +69,6 @@ public class TaxManager {
                 plugin.getLogger().warning("Tax tick failed for claim " + profile.getName() + ": " + ex.getMessage());
             }
         }
-    }
-
-    /**
-     * Kept for API symmetry with the previous build — the public API
-     * already tracks new claims for us via getAllClaimProfiles(). New
-     * claims are picked up by the next tick automatically.
-     */
-    public void registerClaim(ClaimProfile profile) {
-        // no-op: parent API exposes getAllClaimProfiles() now
     }
 
     private void tickClaim(ClaimProfile profile, long now, long dayMs) {
@@ -143,17 +122,12 @@ public class TaxManager {
                                 .replace("<amount>", EconomyHook.format(owed))
                                 .replace("<chunks>", String.valueOf(chunkCount))
                                 .replace("<claim>", profile.getName());
-                FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
+                FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(MessagesConfig.formatRaw(msg)));
             }
         } else {
-            // Couldn't pay — bump the unpaid counter and check the grace period.
             int newUnpaidDays = unpaidDays + (int) elapsedDays;
             if (newUnpaidDays > cfg.taxGracePeriodDays && cfg.taxGracePeriodDays > 0) {
-                // Auto-unclaim: now possible via the public API's
-                // unclaimAll(actor, profileId). Pass null actor to
-                // signal a system-initiated call (bypasses the admin
-                // permission gate — the system itself is the actor).
-                int unclaimed = plugin.getParentAPI().unclaimAll(null, profile.getProfileId());
+                int unclaimed = plugin.getParentAPI().unclaimAll(profile.getProfileId());
                 if (unclaimed > 0) {
                     plugin.getLogger().info("Auto-unclaimed " + unclaimed
                             + " chunk(s) of claim '" + profile.getName()
@@ -167,7 +141,7 @@ public class TaxManager {
                                     .replace("<count>", String.valueOf(unclaimed))
                                     .replace("<claim>", profile.getName())
                                     .replace("<days>", String.valueOf(cfg.taxGracePeriodDays));
-                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
+                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(MessagesConfig.formatRaw(msg)));
                 }
                 writeLedger(profile.getProfileId(), now, 0, 0);
             } else {
@@ -179,18 +153,13 @@ public class TaxManager {
                             + plugin.getMessages().taxInsufficient
                                     .replace("<amount>", EconomyHook.format(owed))
                                     .replace("<deadline>", new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date(deadline)));
-                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(msg));
+                    FoliaScheduler.runForPlayer(plugin, ownerPlayer, () -> ownerPlayer.sendMessage(MessagesConfig.formatRaw(msg)));
                 }
             }
         }
     }
 
-    private void autoUnclaim(ClaimProfile profile) {
-        // Delegated to the public API's unclaimAll() inline in tickClaim
-        // so we don't need a separate helper here.
-    }
-
-    private long[] readLedger(UUID profileId) {
+    public long[] readLedger(UUID profileId) {
         String p = plugin.getDatabase().tablePrefix();
         try (Connection conn = plugin.getDatabase().getConnection();
              PreparedStatement ps = conn.prepareStatement(

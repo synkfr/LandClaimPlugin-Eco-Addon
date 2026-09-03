@@ -120,6 +120,12 @@ public class AuctionManager {
                             .replace("<claim>", profile.getName())));
             return false;
         }
+        if (plugin.getMarketManager() != null && plugin.getMarketManager().isListed(profile.getProfileId())) {
+            seller.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                    + plugin.getMessages().marketAlreadyListed
+                            .replace("<claim>", profile.getName())));
+            return false;
+        }
         int max = plugin.getEconomyConfig().auctionMaxPerPlayer;
         if (max > 0) {
             int active = countActiveAuctions(seller.getUniqueId());
@@ -222,8 +228,33 @@ public class AuctionManager {
             return false;
         }
         if (auction.buyoutPrice > 0 && amount >= auction.buyoutPrice) {
-            // Buyout — settle immediately.
-            settleAuction(auction, bidder.getUniqueId(), auction.buyoutPrice, true);
+            double buyoutAmount = auction.buyoutPrice;
+            if (!EconomyHook.has(bidder, buyoutAmount)) {
+                bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().insufficientFunds
+                                .replace("<cost>", EconomyHook.format(buyoutAmount))
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder)))));
+                return false;
+            }
+            if (!EconomyHook.withdraw(bidder, buyoutAmount)) {
+                bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix
+                        + plugin.getMessages().insufficientFunds
+                                .replace("<cost>", EconomyHook.format(buyoutAmount))
+                                .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder)))));
+                return false;
+            }
+            if (auction.currentBidder != null && auction.currentBid > 0) {
+                EconomyHook.deposit(Bukkit.getOfflinePlayer(auction.currentBidder), auction.currentBid);
+                Player oldBidder = Bukkit.getPlayer(auction.currentBidder);
+                if (oldBidder != null) {
+                    String msg = plugin.getMessages().prefix
+                            + plugin.getMessages().auctionBidOutbid
+                                    .replace("<claim>", auction.claimName)
+                                    .replace("<amount>", EconomyHook.format(buyoutAmount));
+                    FoliaScheduler.runForPlayer(plugin, oldBidder, () -> oldBidder.sendMessage(MessagesConfig.formatRaw(msg)));
+                }
+            }
+            settleAuction(auction, bidder.getUniqueId(), buyoutAmount, true);
             return true;
         }
         if (!EconomyHook.has(bidder, amount)) {
@@ -240,10 +271,6 @@ public class AuctionManager {
                             .replace("<balance>", EconomyHook.format(EconomyHook.getBalance(bidder)))));
             return false;
         }
-        // Refund the previous high bidder. Message goes through runForPlayer
-        // because the previous high bidder may be on a different region than
-        // the current bidder (and placeBid is invoked on the current bidder's
-        // region thread on Folia).
         if (auction.currentBidder != null && auction.currentBid > 0) {
             EconomyHook.deposit(Bukkit.getOfflinePlayer(auction.currentBidder), auction.currentBid);
             Player oldBidder = Bukkit.getPlayer(auction.currentBidder);
@@ -252,20 +279,15 @@ public class AuctionManager {
                         + plugin.getMessages().auctionBidOutbid
                                 .replace("<claim>", auction.claimName)
                                 .replace("<amount>", EconomyHook.format(amount));
-                FoliaScheduler.runForPlayer(plugin, oldBidder, () -> oldBidder.sendMessage(msg));
+                FoliaScheduler.runForPlayer(plugin, oldBidder, () -> oldBidder.sendMessage(MessagesConfig.formatRaw(msg)));
             }
         }
-        // Update the auction row. Also applies sniping protection: if the bid
-        // lands in the last N seconds of the auction, extend ends_at by
-        // the same N so other bidders have time to counter.
         long snipeWindowMs = plugin.getEconomyConfig().auctionSnipeWindowSeconds * 1000L;
         long currentEndsAt = auction.endsAt;
         long now = System.currentTimeMillis();
         long newEndsAt = currentEndsAt;
         if (snipeWindowMs > 0 && currentEndsAt - now <= snipeWindowMs) {
             newEndsAt = currentEndsAt + snipeWindowMs;
-            // Notify the seller that the auction was extended. Seller may be
-            // on a different region than the bidder, so route through runForPlayer.
             Player seller = Bukkit.getPlayer(auction.sellerId);
             if (seller != null) {
                 String msg = plugin.getMessages().prefix
@@ -273,21 +295,21 @@ public class AuctionManager {
                         + "</gold> extended by <gold>"
                         + plugin.getEconomyConfig().auctionSnipeWindowSeconds
                         + "</gold>s due to a last-minute bid.";
-                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
+                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(MessagesConfig.formatRaw(msg)));
             }
         }
         String p = plugin.getDatabase().tablePrefix();
         try (Connection conn = plugin.getDatabase().getConnection();
              PreparedStatement ps = conn.prepareStatement(
                      "UPDATE " + p + "auctions SET current_bid = ?, current_bidder = ?, ends_at = ? "
-                             + "WHERE auction_id = ? AND status = 'ACTIVE'")) {
+                             + "WHERE auction_id = ? AND status = 'ACTIVE' AND current_bid < ?")) {
             ps.setDouble(1, amount);
             ps.setString(2, bidder.getUniqueId().toString());
             ps.setLong(3, newEndsAt);
             ps.setInt(4, auction.auctionId);
+            ps.setDouble(5, amount);
             int rows = ps.executeUpdate();
             if (rows == 0) {
-                // Race: someone else settled it first. Refund and bail.
                 EconomyHook.deposit(bidder, amount);
                 bidder.sendMessage(MessagesConfig.formatRaw(plugin.getMessages().prefix + plugin.getMessages().auctionNotActive));
                 return false;
@@ -374,34 +396,23 @@ public class AuctionManager {
             if (seller != null) {
                 String msg = plugin.getMessages().prefix
                         + plugin.getMessages().auctionEndedNoBids.replace("<claim>", auction.claimName);
-                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
+                FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(MessagesConfig.formatRaw(msg)));
             }
             return;
         }
 
-        // Apply seller-payout ratio (same as the marketplace).
         double payout = winningBid * plugin.getEconomyConfig().marketSellerPayoutRatio;
         EconomyHook.deposit(Bukkit.getOfflinePlayer(auction.sellerId), payout);
         plugin.getDatabase().logTransaction(auction.sellerId.toString(),
                 auction.claimId.toString(), "AUCTION_SALE", payout, auction.claimName);
 
-        // Transfer the claim via the public API. We pass null as the actor so
-        // the parent API does not call hasPermission() on the winner from this
-        // thread (we may be on the global region thread, where Player access
-        // crashes on Folia). Passing null makes the auth check fail; the
-        // transfer will fail and the refund path below will run. This matches
-        // the pre-existing behaviour on Paper as well, since the buyer/seller
-        // is not the current owner and lacks landclaim.admin — the parent API
-        // rejects the transfer in both cases.
         LandClaimAPI api = LandClaimAPI.getInstance();
         boolean transferred = false;
         if (api != null) {
-            transferred = api.transferClaim(null, auction.claimId, winnerId);
+            transferred = api.transferClaim(auction.claimId, winnerId);
         }
 
         if (!transferred) {
-            // Refund winner (who already had winningBid withdrawn by the
-            // bid path) and claw back the seller's payout.
             EconomyHook.deposit(Bukkit.getOfflinePlayer(winnerId), winningBid);
             if (payout > 0) {
                 EconomyHook.withdraw(Bukkit.getOfflinePlayer(auction.sellerId), payout);
@@ -414,21 +425,18 @@ public class AuctionManager {
                 String msg = plugin.getMessages().prefix
                         + plugin.getMessages().marketRefund
                                 .replace("<amount>", EconomyHook.format(winningBid));
-                FoliaScheduler.runForPlayer(plugin, winnerPlayer, () -> winnerPlayer.sendMessage(msg));
+                FoliaScheduler.runForPlayer(plugin, winnerPlayer, () -> winnerPlayer.sendMessage(MessagesConfig.formatRaw(msg)));
             }
             return;
         }
 
-        // Notify both sides. Both may be on a different region than the caller
-        // (checkEnded runs on global region, placeBid runs on the bidder's
-        // region), so route through runForPlayer.
         Player winner = Bukkit.getPlayer(winnerId);
         if (winner != null) {
             String msgTemplate = isBuyout ? plugin.getMessages().auctionBuyoutUsed : plugin.getMessages().auctionWonBuyer;
             String msg = plugin.getMessages().prefix
                     + msgTemplate.replace("<claim>", auction.claimName)
                             .replace("<amount>", EconomyHook.format(winningBid));
-            FoliaScheduler.runForPlayer(plugin, winner, () -> winner.sendMessage(msg));
+            FoliaScheduler.runForPlayer(plugin, winner, () -> winner.sendMessage(MessagesConfig.formatRaw(msg)));
         }
         Player seller = Bukkit.getPlayer(auction.sellerId);
         if (seller != null) {
@@ -436,7 +444,7 @@ public class AuctionManager {
                     + plugin.getMessages().auctionWonSeller
                             .replace("<claim>", auction.claimName)
                             .replace("<amount>", EconomyHook.format(payout));
-            FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(msg));
+            FoliaScheduler.runForPlayer(plugin, seller, () -> seller.sendMessage(MessagesConfig.formatRaw(msg)));
         }
     }
 
@@ -464,7 +472,7 @@ public class AuctionManager {
              PreparedStatement ps = conn.prepareStatement(
                      "SELECT auction_id, claim_profile_id, seller_uuid, starting_price, "
                              + "current_bid, current_bidder, buyout_price, ends_at, started_at, status "
-                             + "FROM " + p + "auctions WHERE claim_profile_id = ?")) {
+                             + "FROM " + p + "auctions WHERE claim_profile_id = ? AND status = 'ACTIVE'")) {
             ps.setString(1, claimId.toString());
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) return readAuction(rs);
@@ -531,5 +539,22 @@ public class AuctionManager {
                 rs.getLong("ends_at"),
                 rs.getLong("started_at"),
                 rs.getString("status"));
+    }
+
+    public boolean cancelAuctionBySystem(UUID claimId) {
+        Auction auction = getAuctionForClaim(claimId);
+        if (auction == null || !auction.isActive()) return false;
+        setStatus(auction.auctionId, "CANCELLED");
+        if (auction.currentBidder != null && auction.currentBid > 0) {
+            EconomyHook.deposit(Bukkit.getOfflinePlayer(auction.currentBidder), auction.currentBid);
+            Player bidder = Bukkit.getPlayer(auction.currentBidder);
+            if (bidder != null) {
+                String msg = plugin.getMessages().prefix
+                        + plugin.getMessages().marketRefund
+                                .replace("<amount>", EconomyHook.format(auction.currentBid));
+                FoliaScheduler.runForPlayer(plugin, bidder, () -> bidder.sendMessage(MessagesConfig.formatRaw(msg)));
+            }
+        }
+        return true;
     }
 }
