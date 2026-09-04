@@ -1,6 +1,7 @@
 package org.ayosynk.landclaimeconomy.config;
 
 import eu.okaeri.configs.OkaeriConfig;
+import eu.okaeri.configs.annotation.Exclude;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -82,8 +83,10 @@ public class MessagesConfig extends OkaeriConfig {
 
     // ========== Formatting helpers ==========
 
-    private static final MiniMessage MM = MiniMessage.miniMessage();
-    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
+    @Exclude
+    private static final transient MiniMessage MM = MiniMessage.miniMessage();
+    @Exclude
+    private static final transient LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
 
     /**
      * Format a MiniMessage template into a legacy-section-encoded string suitable for
