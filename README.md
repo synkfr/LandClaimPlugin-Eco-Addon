@@ -21,9 +21,9 @@ and time-limited auction system with GUI browsers. Every single feature can be t
 
 ## Installation
 
-1. Install [LandClaimPlugin](https://github.com/synkfr/LandClaimPlugin) **3.1.0+**.
+1. Install [LandClaimPlugin](https://github.com/synkfr/LandClaimPlugin) **3.2.0+**.
 2. Install [Vault](https://www.spigotmc.org/resources/vault.34315/) and any economy provider (EssentialsX Eco, CMI Economy, etc.).
-3. Drop `LandClaimPlugin-Economy-3.1.0.jar` into your `plugins/` folder.
+3. Drop `LandClaimPlugin-Economy-3.2.0.jar` into your `plugins/` folder.
 4. Restart the server.
 
 The addon soft-depends on both LandClaimPlugin and Vault. If either is missing
@@ -39,7 +39,7 @@ mvn clean install -DskipTests
 # 2. Package the addon
 cd ../LandClaimPlugin-Eco-Addon
 mvn clean package
-# → target/LandClaimPlugin-Economy-3.1.0.jar
+# → target/LandClaimPlugin-Economy-3.2.0.jar
 ```
 
 ## Commands
@@ -170,6 +170,7 @@ The same rollback safeguards protect against failed auction settlements.
 
 | Addon version | Parent version | Notes |
 |---|---|---|
+| 3.2.0 | 3.2.0+ | Compatible with LandClaimPlugin 3.2.0 boundary notifications and locked visitor settings |
 | 3.1.0 | 3.1.0+ | Supports 3 claim pricing modes, independent toggles, warp privacy fee events, and atomic marketplace purchases |
 | 1.0.0 | 3.0.0 | Initial release |
 

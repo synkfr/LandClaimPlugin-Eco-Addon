@@ -1,0 +1,159 @@
+name: Build
+
+# Triggers:
+#  - push to master        -> dev build (pre-release, updates single "Dev Build (Latest)" tag)
+#  - push of a v* tag      -> stable release (e.g. v3.2.0)
+#  - pull_request to master-> build + artifact only, no release
+#  - manual dispatch       -> dev or release build, your choice
+on:
+  push:
+    branches: ["master"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["master"]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - release
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Don't let two releases fight over the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # required to create tags / releases
+
+    steps:
+      - name: Checkout Addon
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history so release notes are accurate
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+
+      # The addon depends on the parent LandClaimPlugin. Building and installing
+      # the parent plugin into the runner's local Maven repository ensures
+      # zero external dependency failures during addon compilation.
+      - name: Checkout Parent LandClaimPlugin
+        uses: actions/checkout@v5
+        with:
+          repository: synkfr/LandClaimPlugin
+          path: .parent-landclaim
+          ref: master
+
+      - name: Install Parent to Local Maven Cache
+        run: mvn -B clean install -DskipTests --file .parent-landclaim/pom.xml
+
+      - name: Build Addon with Maven
+        run: mvn -B clean package --file pom.xml
+
+      - name: Extract project metadata
+        id: meta
+        run: |
+          VERSION=$(mvn -B help:evaluate -Dexpression=project.version -q -DforceStdout 2>/dev/null | tail -1)
+          SHA=$(git rev-parse --short HEAD)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA"       >> "$GITHUB_OUTPUT"
+
+      # Rename shaded JAR for dev vs release distinction:
+      #   dev:     LandClaimPlugin-Economy-<version>-dev.jar
+      #   release: LandClaimPlugin-Economy-<version>-release.jar
+      - name: Rename JAR for dev build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          cp "target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}.jar" \
+             "target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-dev.jar"
+
+      - name: Rename JAR for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cp "target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}.jar" \
+             "target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-release.jar"
+
+      # ---------- Pull-request builds ----------
+      # Build only; no release, no tag. Just keep the JAR for the run.
+      - name: Upload PR Artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v5
+        with:
+          name: LandClaimPlugin-Economy-pr-${{ steps.meta.outputs.sha }}
+          path: target/LandClaimPlugin-Economy-*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+      # ---------- Pre-release: dev build on master ----------
+      # Reuses a single tag ('dev-latest') and updates the same release each run
+      - name: Upload Dev Artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: actions/upload-artifact@v5
+        with:
+          name: LandClaimPlugin-Economy-dev-${{ steps.meta.outputs.sha }}
+          path: target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-dev.jar
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish Dev Build (Latest)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-latest
+          name: Dev Build (Latest)
+          prerelease: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-dev.jar
+          body: |
+            🛠️ Latest development build from `master`.
+
+            | | |
+            |---|---|
+            | **Version** | `${{ steps.meta.outputs.version }}` |
+            | **Commit**  | `${{ steps.meta.outputs.sha }}` |
+            | **Run**     | #${{ github.run_number }} |
+            | **Built**   | ${{ github.event.head_commit.timestamp }} |
+
+            ⚠️ This is a pre-release from the bleeding edge of `master`. Use at your own risk.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ---------- Stable release on v* tag push ----------
+      - name: Upload Release Artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v5
+        with:
+          name: LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}
+          path: target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-release.jar
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ steps.meta.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: target/LandClaimPlugin-Economy-${{ steps.meta.outputs.version }}-release.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -4,7 +4,7 @@
   <groupId>com.github.synkfr</groupId>
   <artifactId>LandClaimPlugin-Economy</artifactId>
   <name>LandClaimPlugin-Economy</name>
-  <version>3.1.0</version>
+  <version>3.2.0</version>
   <description>Economy addon for LandClaimPlugin — claim/warp/invite costs, daily tax, claim marketplace. Requires Vault.</description>
   <build>
     <defaultGoal>clean package</defaultGoal>
@@ -80,7 +80,7 @@
     <dependency>
       <groupId>com.github.synkfr</groupId>
       <artifactId>LandClaimPlugin</artifactId>
-      <version>3.1.0</version>
+      <version>3.2.0</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
@@ -107,7 +107,7 @@
     </dependency>
   </dependencies>
   <properties>
-    <landclaim.version>3.1.0</landclaim.version>
+    <landclaim.version>3.2.0</landclaim.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <java.version>21</java.version>
   </properties>

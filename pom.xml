@@ -6,7 +6,7 @@
 
     <groupId>com.github.synkfr</groupId>
     <artifactId>LandClaimPlugin-Economy</artifactId>
-    <version>3.1.0</version>
+    <version>3.2.0</version>
     <packaging>jar</packaging>
 
     <name>LandClaimPlugin-Economy</name>
@@ -15,7 +15,7 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <landclaim.version>3.1.0</landclaim.version>
+        <landclaim.version>3.2.0</landclaim.version>
     </properties>
 
     <repositories>
